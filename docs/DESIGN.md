@@ -143,7 +143,7 @@ Phase 1 の「無編集で差し替えた動画が普通に投稿できる」が
 
 - [x] パッケージ名は `com.newchat.setlog` → 確定（v1.3 / versionCode 76）
 - [x] フレームワークはネイティブ / RN / Flutter → ネイティブ（CameraX + Camera2）
-- [ ] 公式動画の秒数・解像度・コーデック・音声の有無（実機 ffprobe 待ち）
+- [x] 公式動画の秒数・解像度・コーデック・音声の有無 → HEVC Main / 短辺720長辺1280 / ~30fps / AAC-LC 48k mono / 約2.07秒。詳細は [analysis/phase0-output-profile.md](analysis/phase0-output-profile.md)（保存経路の値。投稿経路との差は Phase 1 で検証）
 - [x] 投稿時刻はサーバー決定かクライアント送信か → クライアント送信（body の timestamp）
 - [x] 署名チェック・ Play Integrity の有無 → 署名検証・Play Integrity は無し。PairIP licensecheck（起動時 Play ライセンス確認）のみ
 - [x] linimal と同じリポジトリか別か → 別リポジトリ（cutlog 単独）
