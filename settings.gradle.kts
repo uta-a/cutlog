@@ -19,3 +19,12 @@ pluginManagement {
 plugins {
     id("app.morphe.patches") version "1.3.4"
 }
+
+settings {
+    extensions {
+        defaultNamespace = "dev.utaa.cutlog.extension"
+
+        // 相対パスでは extension サブプロジェクトが proguard 設定を解決できないため、絶対パスで指定する。
+        proguardFiles(rootProject.projectDir.resolve("extensions/proguard-rules.pro").toString())
+    }
+}

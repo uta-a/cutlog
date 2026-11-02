@@ -2,7 +2,7 @@
 
 setlog（New Chat Inc. の Android アプリ、`com.newchat.setlog`）向けの Morphe パッチバンドル。「撮った動画を投稿前に編集する」「端末内の任意の動画をその時間のログとして投稿する」を追加する。linimal と同じ構成（patches + extension）。
 
-Phase 0 の静的調査は完了。現在は Phase 1 の起動確認用に、ローカルインストール元チェックのパッチを実装済み。投稿前編集・動画差し替えは未実装。
+Phase 0 の静的調査は完了。現在は Phase 1 の起動確認用に、ローカルインストール元チェックのパッチを実装済み。録画完了時の動画差し替え（Phase 1(b) の PoC）を実装済みで、実機での差し替えと投稿は未検証。投稿前編集は未実装。
 
 ## ドキュメント
 
@@ -41,6 +41,22 @@ java -jar <morphe-desktop-all.jar> patch \
 ```
 
 検証済み: バンドルのビルド、実 APKM への適用・既存開発鍵での署名、`apksigner verify`、生成 APK の jadx 再解析で `return true` を確認。署名済み検証 APK は `scratch/setlog-installer-check.apk`。Android 13 の実機（23043RP34G）へ `adb install -r` で上書きし、コールド起動でログイン画面への到達、40 秒後も同一プロセスが生存することを確認。観測中に「安全設定を完了」画面へ進んだ。暗号鍵の移行・新規作成と、過去動画へのアクセス・投稿は未確認。
+
+## 動画差し替え PoC のパッチ
+
+`動画差し替え PoC` パッチは、録画完了時（`vb0.G0`）に次のファイルがあれば録画ファイルへ上書きし、長さ・解像度・音声有無を差し替え後の値で `CollectionCameraResult` を作り直す。ファイルが無いとき、読めないときは録画をそのまま使う。
+
+`/sdcard/Android/data/com.newchat.setlog/files/cutlog/replacement.mp4`
+
+ファイルを置いている間は、すべての撮影がこの動画に置き換わる。検証が済んだら必ず消す。
+
+```sh
+adb push scratch/replacement.mp4 /sdcard/Android/data/com.newchat.setlog/files/cutlog/replacement.mp4
+adb logcat -s cutlog   # 成功時は "Replaced capture: ..."
+adb shell rm /sdcard/Android/data/com.newchat.setlog/files/cutlog/replacement.mp4
+```
+
+検証用の動画は OutputProfile に合わせて ffmpeg で作る（`scratch/replacement.mp4`、HEVC Main 1280x720 30fps、AAC-LC 48kHz モノラル、約 2.07 秒）。
 
 ## 注意
 
