@@ -14,3 +14,13 @@ setlog-apk/
 
 # OS / エディタ
 .DS_Store
+
+# Gradle と IDE
+.gradle/
+.kotlin/
+**/build/
+/local.properties
+/.idea/
+*.iml
+.vscode/
+*.idsig
