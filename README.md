@@ -8,6 +8,7 @@ setlog（New Chat Inc. の Android アプリ、`com.newchat.setlog`）向けの 
 
 - [docs/DESIGN.md](docs/DESIGN.md) — 設計書（要件・アーキテクチャ・マイルストーン）
 - [docs/analysis/phase0-recording-upload.md](docs/analysis/phase0-recording-upload.md) — 録画完了点とアップロード経路の静的解析
+- [docs/analysis/phase0-output-profile.md](docs/analysis/phase0-output-profile.md) — 公式撮影分の出力仕様（OutputProfile の基準値）
 - [docs/compatibility/pairip-integrity.md](docs/compatibility/pairip-integrity.md) — PairIP / 改ざん検知・整合性保護の調査
 
 ## Phase 0 の到達点
@@ -18,7 +19,8 @@ setlog（New Chat Inc. の Android アプリ、`com.newchat.setlog`）向けの 
 - アップロード: 署名付き URL への HTTP PUT。メディアは暗号化される
 - 投稿時刻: クライアント送信値（body の `timestamp`）
 - 整合性保護: 署名検証・Play Integrity は無し。PairIP licensecheck（起動時 Play ライセンス確認）のみ
-- 残件: 公式撮影分の動画仕様（`ffprobe`）、UI フロー実機確認
+- 動画仕様: HEVC Main / 短辺720・長辺1280 / 約30fps / AAC-LC 48kHz モノラル / 2.065978 秒固定（「保存」経路の値）
+- 残件: UI フロー実機確認、投稿経路の動画仕様の確認（Phase 1）
 
 ## 注意
 

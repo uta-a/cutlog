@@ -146,4 +146,4 @@ wh0.java:57 r0(...) → mc3(投稿メッセージ)構築。oc3(メディア添�
 
 - `y31` のトランスコード/GL 変換の具体内容（解像度固定・透かし等）は推測。全コードパス未追跡
 - `collection` 系と `chat/message` 系の使い分けは実機 UI フロー確認で確定する
-- 公式撮影分の秒数・解像度・コーデック・音声有無は実機 `ffprobe` 待ち（`OutputProfile` の基準値）
+- 公式撮影分の秒数・解像度・コーデック・音声有無は [phase0-output-profile.md](phase0-output-profile.md) で確認済み。ただし「保存」経路の値で、投稿経路との差は Phase 1 で検証する

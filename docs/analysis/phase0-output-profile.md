@@ -1,7 +1,7 @@
 # Phase 0 出力仕様（OutputProfile の基準値）
 
 対象: setlog `com.newchat.setlog` v1.3 / versionCode 76
-手段: 端末の `/sdcard/Movies/Setlog/` にある「保存」機能の出力 5 本を `ffprobe`
+手段: 端末の `/sdcard/Movies/Setlog/` にある「保存」機能の出力 6 本を `ffprobe`
 
 ## 重要な前提
 
@@ -9,7 +9,7 @@
 
 （内部キャッシュ `cacheDir/camera/collection_camera_*.mp4` は製品版が非 debuggable のため `run-as` 不可。今回撮影したクリップはギャラリー保存していないため共有ストレージにも無い。）
 
-## ffprobe 結果（5 本）
+## ffprobe 結果（6 本）
 
 | ファイル(日付) | 解像度 | 長さ | 映像 | 音声 |
 | --- | --- | --- | --- | --- |
