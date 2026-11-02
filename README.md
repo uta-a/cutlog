@@ -2,7 +2,7 @@
 
 setlog（New Chat Inc. の Android アプリ、`com.newchat.setlog`）向けの Morphe パッチバンドル。「撮った動画を投稿前に編集する」「端末内の任意の動画をその時間のログとして投稿する」を追加する。linimal と同じ構成（patches + extension）。
 
-Phase 0 の静的調査は完了。現在は Phase 1 の起動確認用に、ローカルインストール元チェックのパッチを実装済み。録画完了時の動画差し替え（Phase 1(b) の PoC）を実装済みで、実機での差し替えと投稿は未検証。投稿前編集は未実装。
+Phase 0 の静的調査は完了。現在は Phase 1 の起動確認用に、ローカルインストール元チェックのパッチを実装済み。録画完了時の動画差し替え（Phase 1(b) の PoC）を実装済みで、実機での差し替えと、自分だけの vlog への投稿まで確認済み。投稿前編集は未実装。
 
 ## ドキュメント
 
@@ -44,7 +44,7 @@ java -jar <morphe-desktop-all.jar> patch \
 
 ## 動画差し替え PoC のパッチ
 
-`動画差し替え PoC` パッチは、録画完了時（`vb0.G0`）に次のファイルがあれば録画ファイルへ上書きし、長さ・解像度・音声有無を差し替え後の値で `CollectionCameraResult` を作り直す。ファイルが無いとき、読めないときは録画をそのまま使う。
+`動画差し替え PoC` パッチは、録画完了時（`vb0.G0`）に次のファイルがあれば録画ファイルへ上書きし、長さ・解像度・音声有無を差し替え後の値で `CollectionCameraResult` を作り直す。ファイルが無いとき、読めないときは録画をそのまま使う（どちらもログに出す）。
 
 `/sdcard/Android/data/com.newchat.setlog/files/cutlog/replacement.mp4`
 

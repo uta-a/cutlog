@@ -29,6 +29,7 @@ public final class CaptureInterceptor {
         try {
             File source = new File(Environment.getExternalStorageDirectory(), REPLACEMENT_PATH);
             if (!source.isFile()) {
+                Log.i(TAG, "No replacement at " + source + " (exists=" + source.exists() + ")");
                 return null;
             }
             if (!"file".equals(captured.getScheme()) || captured.getPath() == null) {
