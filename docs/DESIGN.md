@@ -30,7 +30,7 @@ cutlog は、setlog（Android 版）を Morphe でパッチし、「撮った動
 - 編集・書き出しは端末内で完結し、外部通信をしない
 - 書き出しは公式の固定長（約 2.07 秒）のクリップで数秒以内
 - パッチが当たらない版では何もしない（公式の撮影フローを壊さない）
-- アプリ更新への追従が楽なよう、フック点は fingerprint で探し、クラス名直書きを避ける
+- アプリ更新への追従が楽なよう、編集フック点は fingerprint で探し、難読化クラス名直書きを避ける。起動確認用のインストール元パッチは、非難読化の PairIP クラス・メソッド名と命令列を併用して対象を限定する
 
 ## アーキテクチャ
 
@@ -121,7 +121,7 @@ cutlog/
 | --- | --- | --- |
 | 利用規約違反としてアカウント停止 | 大 | 検証はサブアカウントで行う。配布する場合は README で明示 |
 | サーバーが長さ・解像度・メタデータを検証して弾く | 大 | `OutputProfile` で公式と同じ仕様に揃える。メディアは暗号化されるため差し替えは G0 より前で行う |
-| PairIP licensecheck で起動不可 | 大 | Phase 0 で署名検証・整合性保護は無しと判明。ただし起動時 Play ライセンスチェックあり。Phase 1 冒頭で無改変リパッケージの起動可否を確認する。詳細は [compatibility/pairip-integrity.md](compatibility/pairip-integrity.md) |
+| PairIP licensecheck で起動不可 | 大 | APK 署名検証・Play Integrity は見当たらないが、起動時 Play ライセンスチェックあり。ローカルインストール元判定を通すパッチは実装・適用済み。Android 13 実機で40秒後も生存し、安全設定画面への到達を確認。Play 通信は残る。詳細は [compatibility/pairip-integrity.md](compatibility/pairip-integrity.md) |
 | アプリ更新でフック点が変わる | 中 | fingerprint は文字列・命令パターン基準。対応バージョンを `compatibleWith` で固定 |
 | 編集 Activity 遷移でカメラ解放・resume 無効化 | 中 | Phase 1 で遷移後の resume 成否を検証。だめなら Dialog 方式 |
 | Media3 の依存衝突・ APK サイズ増 | 小 | 本体同梱分を再利用、足りなければ shadow でリネーム |
@@ -133,7 +133,7 @@ Phase 1 の「無編集で差し替えた動画が普通に投稿できる」が
 
 1. Phase 0 調査（完了）: フレームワーク判定、録画完了点と投稿 API の特定、PairIP 確認、公式動画の `ffprobe`。残りは UI フロー実機確認（Phase 1 へ持ち越し）
 2. Phase 1 差し替え PoC:
-   - (a) 無改変リパッケージ APK が起動・ログインできるか（PairIP 関門、Go/No-Go その1）
+   - (a) インストール元チェックの限定パッチを適用した再署名 APK が起動・ログインできるか（PairIP 関門、Go/No-Go その1。Android 13 実機でログイン画面 → 安全設定画面への到達、40秒後も生存を確認。暗号鍵の移行・作成、過去動画へのアクセスは未確認）
    - (b) `vb0.G0` 直前で固定の動画ファイルに差し替え、サブアカウントで投稿が通るか（Go/No-Go その2）
 3. Phase 2 編集画面: EditorActivity ＋ Renderer、フィルターとテキスト（F1〜F3）
 4. Phase 3 任意動画: 「ファイルから」ボタンとトリム（F4）

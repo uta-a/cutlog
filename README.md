@@ -2,7 +2,7 @@
 
 setlog（New Chat Inc. の Android アプリ、`com.newchat.setlog`）向けの Morphe パッチバンドル。「撮った動画を投稿前に編集する」「端末内の任意の動画をその時間のログとして投稿する」を追加する。linimal と同じ構成（patches + extension）。
 
-現在 Phase 0（事前調査）。実装はまだ無い。
+Phase 0 の静的調査は完了。現在は Phase 1 の起動確認用に、ローカルインストール元チェックのパッチを実装済み。投稿前編集・動画差し替えは未実装。
 
 ## ドキュメント
 
@@ -21,6 +21,26 @@ setlog（New Chat Inc. の Android アプリ、`com.newchat.setlog`）向けの 
 - 整合性保護: 署名検証・Play Integrity は無し。PairIP licensecheck（起動時 Play ライセンス確認）のみ
 - 動画仕様: HEVC Main / 短辺720・長辺1280 / 約30fps / AAC-LC 48kHz モノラル / 2.065978 秒固定（「保存」経路の値）
 - 残件: UI フロー実機確認、投稿経路の動画仕様の確認（Phase 1）
+
+## インストール元チェックのパッチ
+
+- 対象: setlog v1.3 / versionCode 76 / arm64-v8a の APKM
+- `cutlog` パッチは `LicenseClient.performLocalInstallerCheck(): boolean` の本体を `return true` に置換する
+- fingerprint は宣言クラス・メソッド名・signature・インストール元 API 呼び出し・判定文字列で照合。一致が一件でなければ適用を中止する
+- PackageManager API 全体や Firebase のインストール元収集は変更しない。Play ライセンス通信・応答検証・ペイウォールも残るため、起動成功を保証するものではない
+
+ビルドには Morphe の GitHub Packages 認証（環境変数 `GITHUB_ACTOR` / `GITHUB_TOKEN`、または `~/.gradle/gradle.properties` の `gpr.user` / `gpr.key`）が必要。
+
+```sh
+./gradlew :patches:build :patches:buildAndroid
+java -jar <morphe-desktop-all.jar> patch \
+  --patches patches/build/libs/patches-0.0.1.mpp \
+  --out scratch/setlog-installer-check.apk \
+  --keystore scratch/cutlog-dev.keystore \
+  setlog-apk/setlog-1.3-76.apkm
+```
+
+検証済み: バンドルのビルド、実 APKM への適用・既存開発鍵での署名、`apksigner verify`、生成 APK の jadx 再解析で `return true` を確認。署名済み検証 APK は `scratch/setlog-installer-check.apk`。Android 13 の実機（23043RP34G）へ `adb install -r` で上書きし、コールド起動でログイン画面への到達、40 秒後も同一プロセスが生存することを確認。観測中に「安全設定を完了」画面へ進んだ。暗号鍵の移行・新規作成と、過去動画へのアクセス・投稿は未確認。
 
 ## 注意
 
