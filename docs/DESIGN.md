@@ -47,6 +47,7 @@ cutlog/
 ├─ patches/src/main/kotlin/.../cutlog/patches/
 │   ├─ CutlogPatch.kt                  # PairIP のローカルインストール元判定（Phase 1）
 │   ├─ capture/CaptureEditorPatch.kt   # 録画結果の横取り・本体への返却・シェーダー resource の追加（F1〜F3）
+│   ├─ capture/RecordDurationPatch.kt  # 撮影する長さの選択（録画設定と予備タイマーの置き換え）
 │   └─ picker/ImportVideoPatch.kt      # 「ファイルから」ボタン・動画選択結果の受け取り・取り込み動画の返却（F4）
 ├─ patches/src/main/resources/cutlog/media3-shaders/  # media3-effect のシェーダー
 └─ extensions/cutlog/src/main/java/dev/utaa/cutlog/
@@ -55,7 +56,10 @@ cutlog/
     ├─ extension/hook/EditSession.java         # 編集画面が扱う 1 件分の入力と返し先
     ├─ extension/hook/CaptureSession.java      # 撮影した動画 1 件（完了・キャンセルを一度だけ返す）
     ├─ extension/hook/ImportSession.java       # 端末内から選んだ動画 1 件（F4）
+    ├─ extension/editor/CameraChrome.java      # 撮影画面のシャッターの並びにボタンを置く
     ├─ extension/editor/ImportButton.java      # 撮影画面の「ファイルから」ボタン
+    ├─ extension/editor/DurationButton.java    # 撮影画面の長さボタン
+    ├─ extension/record/RecordDuration.java    # 選んだ撮影の長さを本体の録画設定へ渡す
     ├─ extension/editor/EditorDialog.java      # プレビュー＋編集 UI（全画面 Dialog）
     ├─ extension/editor/EditSpec.java          # フィルター・調整・テキストの設定値
     ├─ extension/editor/TextPainter.java       # テキスト描画（プレビューと書き出しで共通）
