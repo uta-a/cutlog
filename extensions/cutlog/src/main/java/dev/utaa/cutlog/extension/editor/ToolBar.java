@@ -24,7 +24,8 @@ final class ToolBar extends HorizontalScrollView {
         setFillViewport(true);
         row = new LinearLayout(context);
         row.setOrientation(LinearLayout.HORIZONTAL);
-        row.setGravity(Gravity.CENTER_VERTICAL);
+        // 収まるときは中央に寄せ、収まらないときは横にスクロールする。
+        row.setGravity(Gravity.CENTER);
         addView(row, new LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
     }
 
@@ -44,6 +45,7 @@ final class ToolBar extends HorizontalScrollView {
         item.addView(iconView);
         TextView labelView = Ui.text(context, label, 11, Ui.TEXT_SECONDARY, false);
         labelView.setGravity(Gravity.CENTER);
+        labelView.setSingleLine(true);
         LinearLayout.LayoutParams labelParams = new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
         labelParams.topMargin = Ui.dp(context, 4);
@@ -51,7 +53,8 @@ final class ToolBar extends HorizontalScrollView {
         item.setClickable(true);
         item.setOnClickListener(v -> select(index));
         items.add(item);
-        row.addView(item, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
+        row.addView(item, new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT));
         return index;
     }
 
