@@ -46,12 +46,16 @@ cutlog は、setlog（Android 版）を Morphe でパッチし、「撮った動
 cutlog/
 ├─ patches/src/main/kotlin/.../cutlog/patches/
 │   ├─ CutlogPatch.kt                  # PairIP のローカルインストール元判定（Phase 1）
-│   └─ capture/CaptureEditorPatch.kt   # 録画結果の横取り・本体への返却・シェーダー resource の追加（F1〜F3）
+│   ├─ capture/CaptureEditorPatch.kt   # 録画結果の横取り・本体への返却・シェーダー resource の追加（F1〜F3）
+│   └─ picker/ImportVideoPatch.kt      # 「ファイルから」ボタン・動画選択結果の受け取り・取り込み動画の返却（F4）
 ├─ patches/src/main/resources/cutlog/media3-shaders/  # media3-effect のシェーダー
 └─ extensions/cutlog/src/main/java/dev/utaa/cutlog/
     ├─ extension/hook/CaptureInterceptor.java  # パッチから呼ばれる入口、Activity の保持
     ├─ extension/hook/CaptureHost.java         # パッチが録画画面に実装させる interface
-    ├─ extension/hook/CaptureSession.java      # 預かった録画結果 1 件（完了・キャンセルを一度だけ返す）
+    ├─ extension/hook/EditSession.java         # 編集画面が扱う 1 件分の入力と返し先
+    ├─ extension/hook/CaptureSession.java      # 撮影した動画 1 件（完了・キャンセルを一度だけ返す）
+    ├─ extension/hook/ImportSession.java       # 端末内から選んだ動画 1 件（F4）
+    ├─ extension/editor/ImportButton.java      # 撮影画面の「ファイルから」ボタン
     ├─ extension/editor/EditorDialog.java      # プレビュー＋編集 UI（全画面 Dialog）
     ├─ extension/editor/EditSpec.java          # フィルター・調整・テキストの設定値
     ├─ extension/editor/TextPainter.java       # テキスト描画（プレビューと書き出しで共通）
@@ -103,15 +107,13 @@ cutlog/
 
 任意動画（F4）は「録画の代わりにファイルを渡す」だけで実現し、投稿処理は公式のまま使う。過去の時間帯（F5）は Phase 0 で「投稿時刻はクライアント送信値」と判明したため技術的には書き換え可能だが、サーバー検証とスコープ定義（サーバー送信値の操作）の両面で Phase 4 に判断を持ち越す。
 
-任意動画の流れ:
+任意動画の流れ（Phase 3 で実装）:
 
-1. カメラ画面に「ファイルから」ボタンを足す（シャッター長押し等でも可）
-2. Photo Picker（`ActivityResultContracts.PickVisualMedia`、VideoOnly）で動画を選ぶ。ストレージ権限は不要
+1. 撮影画面のシャッターの右（フラッシュと左右対称）に「ファイルから」ボタンを足す。撮影画面の `onViewCreated`（`vb0.g0`）でシャッターを探して追加し、レイアウトのたびにフラッシュの位置から合わせる
+2. Photo Picker（`MediaStore.ACTION_PICK_IMAGES`、`video/*`）で動画を選ぶ。ストレージ権限は不要。結果は MainActivity に足した `onActivityResult` で受け取る
 3. 編集画面で開始位置を選び、公式と同じ秒数にトリム＋フィルター＋テキスト
-4. `OutputProfile` に揃えて書き出し、`vb0.G0(oc0)` に差し替えた `oc0` を渡す
+4. `OutputProfile` に揃えて書き出し、本体の撮影開始処理 `vb0.j1()` で CaptureContext を作ってから `CollectionCameraResult` を組み立て、`vb0.G0` に渡す
 5. 以降は公式の投稿フロー（グループ選択・アップロード）をそのまま通す
-
-カメラを開かずに録画完了を偽装できない実装なら、一度公式で短く撮影させ、完了時に差し替える「撮影→差し替え」方式に落とす。
 
 時刻の扱い（Phase 0 で判明。詳細は analysis 参照）:
 
@@ -142,7 +144,7 @@ Phase 1 の「無編集で差し替えた動画が普通に投稿できる」が
    - (a) インストール元チェックの限定パッチを適用した再署名 APK が起動・ログインできるか（PairIP 関門、Go/No-Go その1。Android 13 実機でログイン画面 → 安全設定画面への到達、40秒後も生存を確認。暗号鍵の移行・作成、過去動画へのアクセスは未確認）
    - (b) `vb0.G0` 直前で固定の動画ファイルに差し替え、サブアカウントで投稿が通るか（Go/No-Go その2: Go。差し替えた動画の dev グループへの投稿・別端末での再生はユーザー確認済み。途中の「ロックされた投稿です」は受信側の鍵再生成で解消したとの報告あり。送信側の一時診断では相手用鍵の付与・鍵 ID の一致・投稿用暗号鍵の一致を確認済み）
 3. Phase 2 編集画面: EditorDialog ＋ Renderer、フィルターとテキスト（F1〜F3）。実装済み。実機で編集・書き出し・本体への受け渡しを確認。編集済み動画の投稿は未確認
-4. Phase 3 任意動画: 「ファイルから」ボタンとトリム（F4）
+4. Phase 3 任意動画: 「ファイルから」ボタンとトリム（F4）。実装済み。実機で取り込み・トリム・仕様への変換・本体への受け渡しを確認。取り込み動画の投稿は未確認
 5. Phase 4 仕上げ: 設定画面（F6）、F5 の可否判断、バンドルとして公開するか決める
 
 未決事項:
