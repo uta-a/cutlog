@@ -20,27 +20,43 @@ public final class LayerPainter {
     private final RectF rect = new RectF();
     private final float[] hsv = {0f, 0.85f, 1f};
 
+    private final LayerAnimator.State state = new LayerAnimator.State();
+
     public LayerPainter() {
-        fill.setTextAlign(Paint.Align.CENTER);
-        stroke.setTextAlign(Paint.Align.CENTER);
+        // タイプで 1 文字ずつ出しても位置がずれないよう、全文の幅から左端を決めて左揃えで描く。
+        fill.setTextAlign(Paint.Align.LEFT);
+        stroke.setTextAlign(Paint.Align.LEFT);
         stroke.setStyle(Paint.Style.STROKE);
         stroke.setStrokeJoin(Paint.Join.ROUND);
         stroke.setColor(Color.argb(170, 0, 0, 0));
     }
 
-    public void draw(Canvas canvas, int width, int height, List<Layer> layers, long timeMs) {
+    /** 長さ durationMs の動画の時刻 timeMs での見た目で描く。 */
+    public void draw(Canvas canvas, int width, int height, List<Layer> layers, long timeMs, long durationMs) {
         for (Layer layer : layers) {
-            draw(canvas, width, height, layer, timeMs);
+            draw(canvas, width, height, layer, timeMs, durationMs);
         }
     }
 
-    public void draw(Canvas canvas, int width, int height, Layer layer, long timeMs) {
-        canvas.save();
-        canvas.rotate(layer.rotation, layer.x * width, layer.y * height);
-        if (layer instanceof TextSpec) {
-            drawText(canvas, width, height, (TextSpec) layer, timeMs);
+    public void draw(Canvas canvas, int width, int height, Layer layer, long timeMs, long durationMs) {
+        LayerAnimator.stateAt(layer, timeMs, durationMs, state);
+        if (!state.visible || state.alpha <= 0f || state.scale <= 0f || state.reveal <= 0f) {
+            return;
         }
-        canvas.restore();
+        float cx = layer.x * width;
+        float cy = layer.y * height;
+        int saved = canvas.save();
+        canvas.translate(0f, state.offsetY * height);
+        canvas.rotate(layer.rotation, cx, cy);
+        canvas.scale(state.scale, state.scale, cx, cy);
+        if (state.alpha < 1f) {
+            // 縁取り・影・光をまとめて薄くするため、1 枚の層に描いてから透明度をかける。
+            canvas.saveLayerAlpha(0f, 0f, width, height, Math.round(state.alpha * 255f));
+        }
+        if (layer instanceof TextSpec) {
+            drawText(canvas, width, height, (TextSpec) layer, timeMs, state.reveal);
+        }
+        canvas.restoreToCount(saved);
     }
 
     /** 時刻 timeMs での文字の色。 */
@@ -53,13 +69,15 @@ public final class LayerPainter {
         return Color.HSVToColor(hsv);
     }
 
-    private void drawText(Canvas canvas, int width, int height, TextSpec text, long timeMs) {
+    private void drawText(Canvas canvas, int width, int height, TextSpec text, long timeMs, float reveal) {
         float size = text.size * Math.min(width, height);
         int color = colorAt(text, timeMs);
         fill.setTypeface(text.font.typeface());
         fill.setTextSize(size);
-        float cx = text.x * width;
+        float left = text.x * width - fill.measureText(text.text) / 2f;
         float baseline = text.y * height - (fill.ascent() + fill.descent()) / 2f;
+        String shown = text.text.substring(0,
+                text.text.offsetByCodePoints(0, LayerAnimator.revealedLength(text.text, reveal)));
 
         if (text.background) {
             textBox(width, height, text, rect);
@@ -70,18 +88,18 @@ public final class LayerPainter {
             stroke.setTypeface(text.font.typeface());
             stroke.setTextSize(size);
             stroke.setStrokeWidth(size * 0.12f);
-            canvas.drawText(text.text, cx, baseline, stroke);
+            canvas.drawText(shown, left, baseline, stroke);
         }
         if (text.neon) {
             // 文字の色の光を 2 回重ねて濃くし、芯は白に寄せる。
             fill.setColor(color);
             fill.setShadowLayer(size * 0.35f, 0f, 0f, color);
-            canvas.drawText(text.text, cx, baseline, fill);
+            canvas.drawText(shown, left, baseline, fill);
             fill.setShadowLayer(size * 0.15f, 0f, 0f, color);
-            canvas.drawText(text.text, cx, baseline, fill);
+            canvas.drawText(shown, left, baseline, fill);
             fill.setColor(blend(color, Color.WHITE, 0.6f));
             fill.clearShadowLayer();
-            canvas.drawText(text.text, cx, baseline, fill);
+            canvas.drawText(shown, left, baseline, fill);
             return;
         }
         if (text.shadow) {
@@ -90,7 +108,7 @@ public final class LayerPainter {
             fill.clearShadowLayer();
         }
         fill.setColor(color);
-        canvas.drawText(text.text, cx, baseline, fill);
+        canvas.drawText(shown, left, baseline, fill);
         fill.clearShadowLayer();
     }
 

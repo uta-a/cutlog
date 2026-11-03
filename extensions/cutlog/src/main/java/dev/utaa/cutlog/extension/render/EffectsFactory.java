@@ -75,7 +75,7 @@ public final class EffectsFactory {
     public static List<Effect> exportEffects(EditSpec spec, int width, int height) {
         List<Effect> effects = colorEffects(spec);
         if (!spec.layers.isEmpty()) {
-            List<TextureOverlay> overlays = Collections.singletonList(new LayerOverlay(spec.layers, width, height));
+            List<TextureOverlay> overlays = Collections.singletonList(new LayerOverlay(spec.layers, spec.durationMs, width, height));
             effects.add(new OverlayEffect(overlays));
         }
         return effects;

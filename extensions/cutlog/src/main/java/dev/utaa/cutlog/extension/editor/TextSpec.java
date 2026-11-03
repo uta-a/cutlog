@@ -29,6 +29,6 @@ public final class TextSpec extends Layer {
 
     @Override
     public boolean isAnimated() {
-        return rainbow;
+        return rainbow || super.isAnimated();
     }
 }

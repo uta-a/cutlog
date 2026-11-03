@@ -73,7 +73,7 @@ final class LayerOverlayView extends View {
     protected void onDraw(Canvas canvas) {
         int width = getWidth();
         int height = getHeight();
-        painter.draw(canvas, width, height, spec.layers, timeMs);
+        painter.draw(canvas, width, height, spec.layers, timeMs, spec.durationMs);
         if (selected != null && spec.layers.contains(selected)) {
             RectF bounds = painter.bounds(width, height, selected);
             bounds.inset(-12f, -8f);

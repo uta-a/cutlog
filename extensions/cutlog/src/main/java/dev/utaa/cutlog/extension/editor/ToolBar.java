@@ -55,6 +55,10 @@ final class ToolBar extends HorizontalScrollView {
         return index;
     }
 
+    int selected() {
+        return selected;
+    }
+
     void select(int index) {
         if (index == selected) {
             return;

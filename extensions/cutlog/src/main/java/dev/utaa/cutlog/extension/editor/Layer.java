@@ -18,6 +18,8 @@ public abstract class Layer {
     /** 表示区間。 */
     public long startMs;
     public long endMs = UNTIL_END;
+    public LayerAnimation animationIn = LayerAnimation.NONE;
+    public LayerAnimation animationOut = LayerAnimation.NONE;
 
     protected Layer(float size, float x, float y) {
         this.size = size;
@@ -30,7 +32,8 @@ public abstract class Layer {
 
     /** 見た目が時刻で変わるか。変わるなら、プレビューも書き出しも毎フレーム描き直す。 */
     public boolean isAnimated() {
-        return false;
+        return startMs > 0 || endMs != UNTIL_END
+                || animationIn != LayerAnimation.NONE || animationOut != LayerAnimation.NONE;
     }
 
     /** 長さ {@code durationMs} の動画での表示の終わり。 */

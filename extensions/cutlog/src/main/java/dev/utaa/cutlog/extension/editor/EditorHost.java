@@ -14,4 +14,7 @@ interface EditorHost {
 
     /** 要素を選ぶ。null で選択を外す。 */
     void selectLayer(Layer layer);
+
+    /** 要素の入り（entering）または出のアニメーションの少し前から再生して見せる。 */
+    void previewMotion(Layer layer, boolean entering);
 }

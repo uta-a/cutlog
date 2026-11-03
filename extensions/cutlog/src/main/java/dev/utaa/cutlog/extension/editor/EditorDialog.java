@@ -74,6 +74,9 @@ public final class EditorDialog extends Dialog implements EditorHost {
     private final List<ToolPanel> panels = new ArrayList<>();
     private FrameLayout panelArea;
     private int textTool;
+    private int motionTool;
+    /** 表示区間をドラッグで変えている間か。 */
+    private boolean rangeDragging;
     private TextView playButton;
     private TextView timeLabel;
     private TextView sendButton;
@@ -94,6 +97,7 @@ public final class EditorDialog extends Dialog implements EditorHost {
         this.outputHeight = size[1];
         this.clipDurationMs = Math.min(OutputProfile.clipDurationMs(RecordDuration.selectedMs()), source.durationMs);
         spec.filter = Prefs.lastFilter(activity);
+        spec.durationMs = durationMs();
         setCancelable(false);
         View content = buildContent(activity);
         setContentView(content);
@@ -269,6 +273,26 @@ public final class EditorDialog extends Dialog implements EditorHost {
             public void onLayerTapped(Layer layer) {
                 selectLayer(layer);
             }
+
+            @Override
+            public void onLayerRangeChanged(Layer layer, long positionMs) {
+                // 動かしている端の時刻で止めて見せる。表示が始まる・終わる瞬間を見ながら合わせられる。
+                if (!rangeDragging) {
+                    rangeDragging = true;
+                    playingBeforeScrub = preview.isPlaying();
+                    preview.setPlaying(false);
+                }
+                preview.seekTo(positionMs);
+                overlay.setTimeMs(positionMs);
+                overlay.invalidate();
+                notifyPanels();
+            }
+
+            @Override
+            public void onLayerRangeEnd() {
+                rangeDragging = false;
+                preview.setPlaying(playingBeforeScrub);
+            }
         });
         timeline.setDurationMs(durationMs());
         MaxHeightScrollView timelineScroll = new MaxHeightScrollView(context, Ui.dp(context, 132));
@@ -294,6 +318,8 @@ public final class EditorDialog extends Dialog implements EditorHost {
         panels.add(new AdjustPanel(context, this));
         textTool = toolBar.add("Aa", "文字");
         panels.add(new TextPanel(context, this));
+        motionTool = toolBar.add("↗", "動き");
+        panels.add(new MotionPanel(context, this));
         root.addView(toolBar, new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
         toolBar.select(0);
@@ -325,9 +351,7 @@ public final class EditorDialog extends Dialog implements EditorHost {
             @Override
             public void onLayerTransformed(Layer layer) {
                 // 2 本指で変えた大きさ・角度をパネルのスライダーに映す。
-                for (ToolPanel panel : panels) {
-                    panel.onLayerSelected(selected);
-                }
+                notifyPanels();
             }
         });
         frame.addView(overlay, matchParent());
@@ -430,9 +454,26 @@ public final class EditorDialog extends Dialog implements EditorHost {
         selected = layer != null && spec.layers.contains(layer) ? layer : null;
         overlay.setSelected(selected);
         timeline.setSelected(selected);
-        if (selected instanceof TextSpec) {
+        // 「動き」を開いているときは、要素を選び替えても「動き」のまま。
+        if (selected instanceof TextSpec && toolBar.selected() != motionTool) {
             toolBar.select(textTool);
         }
+        notifyPanels();
+    }
+
+    @Override
+    public void previewMotion(Layer layer, boolean entering) {
+        long start = layer.startMs;
+        long end = layer.endMs(spec.durationMs);
+        long lead = 300;
+        long position = entering
+                ? Math.max(0, start - lead)
+                : Math.max(start, end - LayerAnimator.ANIMATION_MS - lead);
+        preview.seekTo(position);
+        preview.setPlaying(true);
+    }
+
+    private void notifyPanels() {
         for (ToolPanel panel : panels) {
             panel.onLayerSelected(selected);
         }
