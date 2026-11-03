@@ -6,6 +6,7 @@ import android.os.Looper;
 import android.view.TextureView;
 import dev.utaa.cutlog.shaded.androidx.media3.common.Effect;
 import dev.utaa.cutlog.shaded.androidx.media3.common.MediaItem;
+import dev.utaa.cutlog.shaded.androidx.media3.common.PlaybackParameters;
 import dev.utaa.cutlog.shaded.androidx.media3.common.Player;
 import dev.utaa.cutlog.shaded.androidx.media3.exoplayer.ExoPlayer;
 import java.util.List;
@@ -32,6 +33,11 @@ final class PreviewController {
     private ExoPlayer player;
     /** 利用者が一時停止したか。本体の Activity が前面に戻ったときに再開するかを決める。 */
     private boolean pausedByUser;
+    /**
+     * 再生の速さ。プレイヤーの位置は元の動画の時間なので、外へは速さで割った「書き出し後の時間」で
+     * 見せ、外からの時刻は速さを掛けて元の時間に直す。
+     */
+    private float speed = 1f;
 
     PreviewController(Context context, TextureView texture, Source source) {
         this.context = context;
@@ -48,6 +54,7 @@ final class PreviewController {
         player.setRepeatMode(Player.REPEAT_MODE_ONE);
         player.setVideoTextureView(texture);
         player.setVideoEffects(source.effects());
+        player.setPlaybackParameters(new PlaybackParameters(speed));
         player.setMediaItem(source.mediaItem(), positionMs);
         player.prepare();
         player.setPlayWhenReady(play);
@@ -84,8 +91,16 @@ final class PreviewController {
         start(positionMs, play);
     }
 
+    /** 書き出し後の時間での再生位置。 */
     long positionMs() {
-        return player != null ? player.getCurrentPosition() : 0;
+        return player != null ? Math.round(player.getCurrentPosition() / (double) speed) : 0;
+    }
+
+    void setSpeed(float speed) {
+        this.speed = speed;
+        if (player != null) {
+            player.setPlaybackParameters(new PlaybackParameters(speed));
+        }
     }
 
     boolean isPlaying() {
@@ -99,9 +114,10 @@ final class PreviewController {
         }
     }
 
+    /** positionMs は書き出し後の時間。 */
     void seekTo(long positionMs) {
         if (player != null) {
-            player.seekTo(positionMs);
+            player.seekTo(Math.round(positionMs * (double) speed));
         }
     }
 

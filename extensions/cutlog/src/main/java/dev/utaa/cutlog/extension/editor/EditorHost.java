@@ -15,6 +15,12 @@ interface EditorHost {
     /** 要素を選ぶ。null で選択を外す。 */
     void selectLayer(Layer layer);
 
+    /** 速さを変える前の動画の長さ。 */
+    long baseDurationMs();
+
+    /** 再生の速さを変える。書き出した動画の長さと、文字・スタンプの表示区間も合わせて変わる。 */
+    void setSpeed(float speed);
+
     /** 端末の画像を選んで縮小して読み、main thread で渡す。選ばなかった・読めなかったときは呼ばない。 */
     void pickImage(java.util.function.Consumer<android.graphics.Bitmap> callback);
 

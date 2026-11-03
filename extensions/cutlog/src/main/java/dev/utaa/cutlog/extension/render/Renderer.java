@@ -6,7 +6,9 @@ import android.util.Log;
 import dev.utaa.cutlog.extension.editor.EditSpec;
 import dev.utaa.cutlog.extension.hook.CaptureInterceptor;
 import dev.utaa.cutlog.shaded.androidx.media3.common.Effect;
+import dev.utaa.cutlog.shaded.androidx.media3.common.C;
 import dev.utaa.cutlog.shaded.androidx.media3.common.MediaItem;
+import dev.utaa.cutlog.shaded.androidx.media3.common.audio.SpeedProvider;
 import dev.utaa.cutlog.shaded.androidx.media3.common.audio.AudioProcessor;
 import dev.utaa.cutlog.shaded.androidx.media3.common.audio.ChannelMixingAudioProcessor;
 import dev.utaa.cutlog.shaded.androidx.media3.common.audio.ChannelMixingMatrix;
@@ -86,7 +88,8 @@ public final class Renderer {
                     @Override
                     public void onCompleted(Composition composition, ExportResult result) {
                         Log.i(CaptureInterceptor.TAG, "Export completed: " + result.width + "x" + result.height
-                                + ", " + result.durationMs + "ms, video=" + result.videoMimeType
+                                + ", " + result.durationMs + "ms, " + result.videoFrameCount + " frames"
+                                + ", video=" + result.videoMimeType
                                 + " (" + result.videoEncoderName + "), audio=" + result.audioMimeType);
                         if (!OutputProfile.VIDEO_MIME_TYPE.equals(result.videoMimeType)) {
                             output.delete();
@@ -117,15 +120,32 @@ public final class Renderer {
         }
         List<AudioProcessor> audio = new ArrayList<>();
         List<Effect> video = new ArrayList<>();
-        if (request.normalize) {
+        float speed = request.spec.speed;
+        if (request.normalize || speed > 1f) {
+            // 公式撮影分は 30fps 以下。速くすると撮影した動画でもフレームが詰まるため、同じく間引く。
             video.add(FrameDropEffect.createDefaultFrameDropEffect(OutputProfile.FRAME_RATE));
+        }
+        if (request.normalize) {
             video.addAll(EffectsFactory.normalizeEffects(request.width, request.height));
             audio.addAll(normalizeAudio());
         }
         video.addAll(EffectsFactory.exportEffects(request.spec, request.width, request.height));
-        EditedMediaItem item = new EditedMediaItem.Builder(mediaItem.build())
-                .setEffects(new Effects(audio, video))
-                .build();
+        EditedMediaItem.Builder itemBuilder = new EditedMediaItem.Builder(mediaItem.build())
+                .setEffects(new Effects(audio, video));
+        if (speed != 1f) {
+            itemBuilder.setSpeed(new SpeedProvider() {
+                @Override
+                public float getSpeed(long timeUs) {
+                    return speed;
+                }
+
+                @Override
+                public long getNextSpeedChangeTimeUs(long timeUs) {
+                    return C.TIME_UNSET;
+                }
+            });
+        }
+        EditedMediaItem item = itemBuilder.build();
 
         if (request.normalize) {
             // 音声の無い動画にも、公式撮影分と同じく音声トラック（無音）を付ける。HDR は SDR へ落とす。

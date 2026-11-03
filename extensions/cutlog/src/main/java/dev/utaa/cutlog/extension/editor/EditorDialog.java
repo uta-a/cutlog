@@ -222,9 +222,15 @@ public final class EditorDialog extends Dialog implements EditorHost {
         });
     }
 
+    /** 速さを変える前の動画の長さ（取り込んだ動画は切り出す長さ）。 */
+    @Override
+    public long baseDurationMs() {
+        return normalize ? clipDurationMs : source.durationMs;
+    }
+
     /** 書き出し後の動画の長さ。タイムラインの長さもこれ。 */
     private long durationMs() {
-        return normalize ? clipDurationMs : source.durationMs;
+        return Speed.outputMs(baseDurationMs(), spec.speed);
     }
 
     /** 再生位置を毎フレーム、タイムラインと時間の表示に映す。 */
@@ -326,6 +332,8 @@ public final class EditorDialog extends Dialog implements EditorHost {
         panels.add(new FramePanel(context, this));
         toolBar.add("⇋", "反転・ズーム");
         panels.add(new TransformPanel(context, this));
+        toolBar.add("»", "速度");
+        panels.add(new SpeedPanel(context, this));
         textTool = toolBar.add("Aa", "文字");
         panels.add(new TextPanel(context, this));
         stickerTool = toolBar.add("☺︎", "スタンプ");
@@ -498,6 +506,25 @@ public final class EditorDialog extends Dialog implements EditorHost {
     }
 
     @Override
+    public void setSpeed(float speed) {
+        float previous = spec.speed;
+        if (speed == previous) {
+            return;
+        }
+        // 文字・スタンプが同じ場面に出続けるよう、表示区間も同じ比率で伸び縮みさせる。
+        for (Layer layer : spec.layers) {
+            layer.startMs = Speed.rescale(layer.startMs, previous, speed);
+            layer.endMs = Speed.rescale(layer.endMs, previous, speed);
+        }
+        spec.speed = speed;
+        spec.durationMs = durationMs();
+        timeline.setDurationMs(spec.durationMs);
+        preview.setSpeed(speed);
+        layersChanged();
+        notifyPanels();
+    }
+
+    @Override
     public void previewMotion(Layer layer, boolean entering) {
         long start = layer.startMs;
         long end = layer.endMs(spec.durationMs);
@@ -525,7 +552,8 @@ public final class EditorDialog extends Dialog implements EditorHost {
 
     private void loadThumbnails() {
         long start = normalize ? clipStartMs : 0;
-        thumbnails.load(start, durationMs(), frames -> timeline.setThumbnails(frames));
+        // サムネイルは元の動画から読むため、速さを変える前の長さで区切る。
+        thumbnails.load(start, baseDurationMs(), frames -> timeline.setThumbnails(frames));
     }
 
     private void confirmCancel() {

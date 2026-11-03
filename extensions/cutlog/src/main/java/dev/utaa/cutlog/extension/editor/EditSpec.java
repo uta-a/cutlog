@@ -19,6 +19,8 @@ public final class EditSpec {
     public float zoom = 1f;
     public float panX;
     public float panY;
+    /** 再生の速さ。1 で等速。書き出した動画の長さは元の長さ ÷ speed になる。 */
+    public float speed = 1f;
     /** 動画に重ねるフレーム。 */
     public FrameStyle frame = FrameStyle.NONE;
     /** 書き出し後の動画の長さ。「最後まで」表示する要素の終わりになる。 */
@@ -31,7 +33,7 @@ public final class EditSpec {
     }
 
     public boolean isEmpty() {
-        return !hasColorEdits() && !hasTransform() && effects.isEmpty() && frame == FrameStyle.NONE && layers.isEmpty();
+        return !hasColorEdits() && !hasTransform() && speed == 1f && effects.isEmpty() && frame == FrameStyle.NONE && layers.isEmpty();
     }
 
     public boolean hasTransform() {
