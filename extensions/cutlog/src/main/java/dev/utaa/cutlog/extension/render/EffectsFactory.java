@@ -3,6 +3,7 @@ package dev.utaa.cutlog.extension.render;
 import android.graphics.Matrix;
 import dev.utaa.cutlog.extension.editor.EditSpec;
 import dev.utaa.cutlog.extension.editor.FilterPreset;
+import dev.utaa.cutlog.extension.editor.FrameStyle;
 import dev.utaa.cutlog.extension.editor.VideoEffect;
 import dev.utaa.cutlog.shaded.androidx.media3.effect.GaussianBlur;
 import dev.utaa.cutlog.shaded.androidx.media3.effect.MatrixTransformation;
@@ -121,8 +122,9 @@ public final class EffectsFactory {
     /** 書き出し用。動画全体の効果の後に文字・スタンプを焼き込む。 */
     public static List<Effect> exportEffects(EditSpec spec, int width, int height) {
         List<Effect> effects = videoEffects(spec);
-        if (!spec.layers.isEmpty()) {
-            List<TextureOverlay> overlays = Collections.singletonList(new LayerOverlay(spec.layers, spec.durationMs, width, height));
+        if (!spec.layers.isEmpty() || spec.frame != FrameStyle.NONE) {
+            List<TextureOverlay> overlays = Collections.singletonList(
+                    new LayerOverlay(spec.frame, spec.layers, spec.durationMs, width, height));
             effects.add(new OverlayEffect(overlays));
         }
         return effects;

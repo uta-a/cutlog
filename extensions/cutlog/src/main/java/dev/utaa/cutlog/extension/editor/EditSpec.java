@@ -12,6 +12,8 @@ public final class EditSpec {
     public float saturation;
     /** 動画全体にかける効果と強さ（0〜1）。入っているものがかかる。 */
     public final java.util.EnumMap<VideoEffect, Float> effects = new java.util.EnumMap<>(VideoEffect.class);
+    /** 動画に重ねるフレーム。 */
+    public FrameStyle frame = FrameStyle.NONE;
     /** 書き出し後の動画の長さ。「最後まで」表示する要素の終わりになる。 */
     public long durationMs;
     /** 動画の上に重ねる要素。後ろほど手前に描く。 */
@@ -22,6 +24,6 @@ public final class EditSpec {
     }
 
     public boolean isEmpty() {
-        return !hasColorEdits() && effects.isEmpty() && layers.isEmpty();
+        return !hasColorEdits() && effects.isEmpty() && frame == FrameStyle.NONE && layers.isEmpty();
     }
 }

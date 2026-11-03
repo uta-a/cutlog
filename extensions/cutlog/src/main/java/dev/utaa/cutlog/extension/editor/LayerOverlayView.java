@@ -29,6 +29,7 @@ final class LayerOverlayView extends View {
     private final EditSpec spec;
     private final Listener listener;
     private final LayerPainter painter = new LayerPainter();
+    private final FramePainter framePainter = new FramePainter();
     private final Paint selectionPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
     private Layer selected;
     private Layer dragging;
@@ -61,6 +62,10 @@ final class LayerOverlayView extends View {
             return;
         }
         this.timeMs = timeMs;
+        if (spec.frame.animated) {
+            invalidate();
+            return;
+        }
         for (Layer layer : spec.layers) {
             if (layer.isAnimated()) {
                 invalidate();
@@ -73,6 +78,7 @@ final class LayerOverlayView extends View {
     protected void onDraw(Canvas canvas) {
         int width = getWidth();
         int height = getHeight();
+        framePainter.draw(canvas, width, height, spec.frame, timeMs);
         painter.draw(canvas, width, height, spec.layers, timeMs, spec.durationMs);
         if (selected != null && spec.layers.contains(selected)) {
             RectF bounds = painter.bounds(width, height, selected);

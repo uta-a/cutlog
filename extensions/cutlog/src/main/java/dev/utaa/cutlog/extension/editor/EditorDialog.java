@@ -322,6 +322,8 @@ public final class EditorDialog extends Dialog implements EditorHost {
         panels.add(new AdjustPanel(context, this));
         toolBar.add("✦", "効果");
         panels.add(new EffectPanel(context, this));
+        toolBar.add("▣", "フレーム");
+        panels.add(new FramePanel(context, this));
         textTool = toolBar.add("Aa", "文字");
         panels.add(new TextPanel(context, this));
         stickerTool = toolBar.add("☺︎", "スタンプ");
