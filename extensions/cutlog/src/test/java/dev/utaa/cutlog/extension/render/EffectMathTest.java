@@ -49,6 +49,36 @@ public class EffectMathTest {
     }
 
     @Test
+    public void transformFlipsAndZooms() {
+        float[] t = EffectMath.transform(true, false, 2f, 0f, 0f);
+        assertEquals(-2f, t[0], 0f);
+        assertEquals(2f, t[1], 0f);
+        assertEquals(0f, t[2], 0f);
+        assertEquals(0f, t[3], 0f);
+    }
+
+    /** 右端を見せるときは、画像を左へ動かす。拡大した分しか動かさないので、端が画面の端に揃う。 */
+    @Test
+    public void panStaysInsideZoomedImage() {
+        float[] t = EffectMath.transform(false, false, 2f, 1f, -1f);
+        assertEquals(-1f, t[2], 0f);
+        assertEquals(-1f, t[3], 0f);
+        // 拡大した画像の右端は 2 + (-1) = 1 で、画面の右端と一致する。
+        assertEquals(1f, t[0] * 1f + t[2], 0f);
+        float[] clamped = EffectMath.transform(false, false, 1.5f, 5f, 0f);
+        assertEquals(-0.5f, clamped[2], 0.0001f);
+    }
+
+    /** 拡大していないときは動かさない。 */
+    @Test
+    public void noPanWithoutZoom() {
+        float[] t = EffectMath.transform(false, true, 1f, 1f, 1f);
+        assertEquals(0f, t[2], 0f);
+        assertEquals(0f, t[3], 0f);
+        assertEquals(-1f, t[1], 0f);
+    }
+
+    @Test
     public void rainbowCyclesEveryTwoSeconds() {
         assertEquals(0f, EffectMath.rainbowDegrees(0), 0.001f);
         assertEquals(180f, EffectMath.rainbowDegrees(1_000_000), 0.001f);

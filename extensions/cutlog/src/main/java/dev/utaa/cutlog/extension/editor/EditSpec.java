@@ -12,6 +12,13 @@ public final class EditSpec {
     public float saturation;
     /** 動画全体にかける効果と強さ（0〜1）。入っているものがかかる。 */
     public final java.util.EnumMap<VideoEffect, Float> effects = new java.util.EnumMap<>(VideoEffect.class);
+    /** 左右・上下の反転。 */
+    public boolean flipX;
+    public boolean flipY;
+    /** 拡大率（1〜3）と、拡大して余った範囲のどこを見せるか（-1〜1。横は正で右、縦は正で下）。 */
+    public float zoom = 1f;
+    public float panX;
+    public float panY;
     /** 動画に重ねるフレーム。 */
     public FrameStyle frame = FrameStyle.NONE;
     /** 書き出し後の動画の長さ。「最後まで」表示する要素の終わりになる。 */
@@ -24,6 +31,10 @@ public final class EditSpec {
     }
 
     public boolean isEmpty() {
-        return !hasColorEdits() && effects.isEmpty() && frame == FrameStyle.NONE && layers.isEmpty();
+        return !hasColorEdits() && !hasTransform() && effects.isEmpty() && frame == FrameStyle.NONE && layers.isEmpty();
+    }
+
+    public boolean hasTransform() {
+        return flipX || flipY || zoom > 1f;
     }
 }

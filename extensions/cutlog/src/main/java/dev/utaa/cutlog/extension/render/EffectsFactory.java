@@ -77,11 +77,20 @@ public final class EffectsFactory {
     }
 
     /**
-     * 動画全体にかける効果。揺れ → 色の編集 → RGB → ぼかし → グリッチ → VHS → 粒子 → ビネットの順。
+     * 動画全体にかける効果。反転・ズーム → 揺れ → 色の編集 → RGB → ぼかし → グリッチ → VHS → 粒子 → ビネットの順。
      * 文字・スタンプはこの後に重ねるため、効果はかからない。
      */
     public static List<Effect> videoEffects(EditSpec spec) {
         List<Effect> effects = new ArrayList<>();
+        if (spec.hasTransform()) {
+            float[] t = EffectMath.transform(spec.flipX, spec.flipY, spec.zoom, spec.panX, spec.panY);
+            effects.add((MatrixTransformation) presentationTimeUs -> {
+                Matrix matrix = new Matrix();
+                matrix.postScale(t[0], t[1]);
+                matrix.postTranslate(t[2], t[3]);
+                return matrix;
+            });
+        }
         Float shake = spec.effects.get(VideoEffect.SHAKE);
         if (shake != null) {
             float intensity = shake;

@@ -33,6 +33,19 @@ final class EffectMath {
         return matrix;
     }
 
+    /**
+     * 反転・ズームの変換。{scaleX, scaleY, translateX, translateY}（正規化座標。y は上が正）。
+     * panX・panY は -1〜1 で、拡大して余った範囲のどこを見せるか（panX 正で右側、panY 正で下側）。
+     * 移動は拡大した分（zoom - 1）までに抑え、動画の外が見えないようにする。
+     */
+    static float[] transform(boolean flipX, boolean flipY, float zoom, float panX, float panY) {
+        float z = Math.max(1f, zoom);
+        float room = z - 1f;
+        float px = Math.max(-1f, Math.min(1f, panX));
+        float py = Math.max(-1f, Math.min(1f, panY));
+        return new float[] {(flipX ? -z : z), (flipY ? -z : z), -px * room, py * room};
+    }
+
     /** 時刻 timeUs での RGB の色相（度）。 */
     static float rainbowDegrees(long timeUs) {
         return 360f * Math.floorMod(timeUs, RAINBOW_PERIOD_US) / RAINBOW_PERIOD_US;
