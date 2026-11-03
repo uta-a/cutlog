@@ -7,10 +7,15 @@ public final class CaptureReplacement {
     public final int height;
     public final boolean hasAudio;
 
-    CaptureReplacement(long durationMs, int width, int height, boolean hasAudio) {
+    public CaptureReplacement(long durationMs, int width, int height, boolean hasAudio) {
         this.durationMs = durationMs;
         this.width = width;
         this.height = height;
         this.hasAudio = hasAudio;
+    }
+
+    @Override
+    public String toString() {
+        return width + "x" + height + ", " + durationMs + "ms, audio=" + hasAudio;
     }
 }
