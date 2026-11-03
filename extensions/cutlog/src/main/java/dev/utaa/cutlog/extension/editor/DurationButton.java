@@ -11,7 +11,7 @@ import android.widget.TextView;
 import dev.utaa.cutlog.extension.pref.Prefs;
 
 /**
- * 撮影画面のフラッシュの左に置く、撮影する長さのボタン。押すたびに 2 → 3 → 5 → 10 → 15 → 30 秒と切り替わる。
+ * 撮影画面のフラッシュの左に置く、撮影する長さのボタン。押すたびに 2 → 3 → 5 → 10 → 15 秒と切り替わる。
  * 公式と違う長さを選んでいる間は、ピンクの縁取りで目立たせる。
  */
 @SuppressLint({"ViewConstructor", "AppCompatCustomView"})

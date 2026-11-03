@@ -37,7 +37,7 @@ private val WIDE_CONSTS = setOf(Opcode.CONST_WIDE_16, Opcode.CONST_WIDE_32, Opco
 @Suppress("unused")
 val recordDurationPatch = bytecodePatch(
     name = "撮影秒数の選択",
-    description = "撮影画面に撮影する長さ（2〜30 秒）を選ぶボタンを追加します。",
+    description = "撮影画面に撮影する長さ（2〜15 秒）を選ぶボタンを追加します。",
 ) {
     compatibleWith(Constants.SETLOG_COMPATIBILITY)
     dependsOn(captureEditorPatch)

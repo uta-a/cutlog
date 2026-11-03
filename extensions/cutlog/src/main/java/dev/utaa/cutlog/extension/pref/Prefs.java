@@ -11,7 +11,7 @@ public final class Prefs {
     private static final String RECORD_SECONDS = "record_seconds";
 
     /** 撮影する長さの選択肢（秒）。先頭は公式と同じ長さ。 */
-    public static final int[] RECORD_SECONDS_CHOICES = {2, 3, 5, 10, 15, 30};
+    public static final int[] RECORD_SECONDS_CHOICES = {2, 3, 5, 10, 15};
 
     private Prefs() {}
 
