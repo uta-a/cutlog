@@ -8,6 +8,8 @@ import android.graphics.Color;
 import android.graphics.Outline;
 import android.graphics.drawable.GradientDrawable;
 import android.net.Uri;
+import android.os.Handler;
+import android.os.Looper;
 import android.text.InputType;
 import android.util.Log;
 import android.view.Gravity;
@@ -62,6 +64,11 @@ public final class EditorDialog extends Dialog {
     private final CaptureReplacement video;
     private final EditSpec spec = new EditSpec();
 
+    /** スライダーを続けて動かしたときに、プレビューを作り直す回数を抑える。 */
+    private static final long PREVIEW_REBUILD_DELAY_MS = 150;
+
+    private final Handler handler = new Handler(Looper.getMainLooper());
+    private final Runnable rebuildPreview = this::rebuildPreview;
     private ExoPlayer player;
     private Renderer renderer;
     private TextureView previewTexture;
@@ -478,29 +485,40 @@ public final class EditorDialog extends Dialog {
     // ---- プレビュー ----
 
     private void startPreview() {
+        startPreview(0);
+    }
+
+    private void startPreview(long positionMs) {
         player = new ExoPlayer.Builder(getContext()).build();
         player.setRepeatMode(Player.REPEAT_MODE_ONE);
         player.setVideoTextureView(previewTexture);
         player.setVideoEffects(EffectsFactory.colorEffects(spec));
-        player.setMediaItem(MediaItem.fromUri(Uri.fromFile(capturedFile)));
+        player.setMediaItem(MediaItem.fromUri(Uri.fromFile(capturedFile)), positionMs);
         player.prepare();
         player.play();
     }
 
+    /**
+     * 再生中のプレイヤーに {@code setVideoEffects} を何度も送ると、ループの境目で映像も音声も止まる
+     * （media3 1.11.1 / Android 13 実機で再現）。そのため色の編集を変えたら、少し待ってから
+     * 新しい Effect でプレイヤーを作り直し、同じ位置から再生を続ける。
+     */
     private void updatePreviewEffects() {
+        handler.removeCallbacks(rebuildPreview);
+        handler.postDelayed(rebuildPreview, PREVIEW_REBUILD_DELAY_MS);
+    }
+
+    private void rebuildPreview() {
         if (player == null) {
             return;
         }
-        try {
-            player.setVideoEffects(EffectsFactory.colorEffects(spec));
-        } catch (RuntimeException e) {
-            Log.w(CaptureInterceptor.TAG, "Cannot update preview effects; restarting the preview.", e);
-            player.release();
-            startPreview();
-        }
+        long positionMs = player.getCurrentPosition();
+        player.release();
+        startPreview(positionMs);
     }
 
     private void release() {
+        handler.removeCallbacks(rebuildPreview);
         if (renderer != null) {
             renderer.cancel();
             renderer = null;
