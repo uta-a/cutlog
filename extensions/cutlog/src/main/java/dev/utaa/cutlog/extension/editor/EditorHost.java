@@ -15,6 +15,9 @@ interface EditorHost {
     /** 要素を選ぶ。null で選択を外す。 */
     void selectLayer(Layer layer);
 
+    /** 端末の画像を選んで縮小して読み、main thread で渡す。選ばなかった・読めなかったときは呼ばない。 */
+    void pickImage(java.util.function.Consumer<android.graphics.Bitmap> callback);
+
     /** 要素の入り（entering）または出のアニメーションの少し前から再生して見せる。 */
     void previewMotion(Layer layer, boolean entering);
 }

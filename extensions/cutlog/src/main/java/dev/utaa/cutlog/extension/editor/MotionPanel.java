@@ -115,7 +115,7 @@ final class MotionPanel extends ToolPanel {
 
     private void refresh(Layer layer) {
         if (layer == null) {
-            rangeLabel.setText("文字を選ぶと、表示する区間と動きを変えられます");
+            rangeLabel.setText("文字かスタンプを選ぶと、表示する区間と動きを変えられます");
             rangeLabel.setTextColor(Ui.TEXT_SECONDARY);
         } else {
             long duration = host.spec().durationMs;

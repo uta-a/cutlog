@@ -32,6 +32,10 @@ public final class CaptureInterceptor {
 
     /** 動画選択の requestCode。本体の requestCode と重ならない値にする。 */
     private static final int PICK_VIDEO_REQUEST = 0x4354;
+    /** 編集画面でスタンプにする画像を選ぶ requestCode。 */
+    private static final int PICK_IMAGE_REQUEST = 0x4355;
+    /** 画像を選んでいる間の編集画面の受け取り口。 */
+    private static WeakReference<java.util.function.Consumer<Uri>> pickingImage = new WeakReference<>(null);
 
     private static WeakReference<Activity> currentActivity = new WeakReference<>(null);
     /** 動画を選んでいる間の撮影画面。選択画面から戻ったら、ここへ結果を返す。 */
@@ -153,11 +157,41 @@ public final class CaptureInterceptor {
     }
 
     /**
+     * 編集画面からスタンプにする画像を選ぶ。結果は main thread で callback に渡す（選ばなければ呼ばない）。
+     * 編集画面は弱参照で持つので、選んでいる間に編集画面が閉じられても残らない。呼び出し側は callback を
+     * 編集画面が閉じるまで強参照で持つこと。
+     */
+    public static void pickImage(Activity activity, java.util.function.Consumer<Uri> callback) {
+        Intent intent;
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            intent = new Intent(MediaStore.ACTION_PICK_IMAGES).setType("image/*");
+        } else {
+            intent = new Intent(Intent.ACTION_GET_CONTENT).setType("image/*").addCategory(Intent.CATEGORY_OPENABLE);
+        }
+        pickingImage = new WeakReference<>(callback);
+        try {
+            activity.startActivityForResult(intent, PICK_IMAGE_REQUEST);
+        } catch (ActivityNotFoundException e) {
+            pickingImage = new WeakReference<>(null);
+            Toast.makeText(activity, "画像を選べるアプリがありません", Toast.LENGTH_SHORT).show();
+        }
+    }
+
+    /**
      * MainActivity.onActivityResult から呼ばれる。
      *
      * @return true なら cutlog の動画選択の結果だった。本体には渡さない。
      */
     public static boolean onActivityResult(Activity activity, int requestCode, int resultCode, Intent data) {
+        if (requestCode == PICK_IMAGE_REQUEST) {
+            java.util.function.Consumer<Uri> callback = pickingImage.get();
+            pickingImage = new WeakReference<>(null);
+            Uri picked = data != null ? data.getData() : null;
+            if (resultCode == Activity.RESULT_OK && picked != null && callback != null) {
+                callback.accept(picked);
+            }
+            return true;
+        }
         if (requestCode != PICK_VIDEO_REQUEST) {
             return false;
         }

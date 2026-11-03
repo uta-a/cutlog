@@ -21,8 +21,14 @@ public final class LayerPainter {
     private final float[] hsv = {0f, 0.85f, 1f};
 
     private final LayerAnimator.State state = new LayerAnimator.State();
+    /** 絵文字の文字サイズ ÷ スタンプの高さ。 */
+    private static final float EMOJI_SCALE = 0.85f;
+    private final Paint emojiPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
+    private final Paint imagePaint = new Paint(Paint.ANTI_ALIAS_FLAG | Paint.FILTER_BITMAP_FLAG);
 
     public LayerPainter() {
+        emojiPaint.setTextAlign(Paint.Align.CENTER);
+        emojiPaint.setColor(Color.BLACK);
         // タイプで 1 文字ずつ出しても位置がずれないよう、全文の幅から左端を決めて左揃えで描く。
         fill.setTextAlign(Paint.Align.LEFT);
         stroke.setTextAlign(Paint.Align.LEFT);
@@ -55,8 +61,26 @@ public final class LayerPainter {
         }
         if (layer instanceof TextSpec) {
             drawText(canvas, width, height, (TextSpec) layer, timeMs, state.reveal);
+        } else if (layer instanceof StickerSpec) {
+            drawSticker(canvas, width, height, (StickerSpec) layer);
         }
         canvas.restoreToCount(saved);
+    }
+
+    private void drawSticker(Canvas canvas, int width, int height, StickerSpec sticker) {
+        float size = sticker.size * Math.min(width, height);
+        float cx = sticker.x * width;
+        float cy = sticker.y * height;
+        if (sticker.image != null) {
+            float halfWidth = size * sticker.aspect() / 2f;
+            rect.set(cx - halfWidth, cy - size / 2f, cx + halfWidth, cy + size / 2f);
+            canvas.drawBitmap(sticker.image, null, rect, imagePaint);
+            return;
+        }
+        // 絵文字は字形の高さが文字サイズより小さいため、少し大きめの文字サイズで描いて高さを合わせる。
+        emojiPaint.setTextSize(size * EMOJI_SCALE);
+        float baseline = cy - (emojiPaint.ascent() + emojiPaint.descent()) / 2f;
+        canvas.drawText(sticker.emoji, cx, baseline, emojiPaint);
     }
 
     /** 時刻 timeMs での文字の色。 */
@@ -130,6 +154,11 @@ public final class LayerPainter {
             fill.setTypeface(text.font.typeface());
             fill.setTextSize(size);
             halfWidth = fill.measureText(text.text) / 2f + (text.background ? size * 0.3f : 0f);
+        } else if (layer instanceof StickerSpec) {
+            float cx = layer.x * width;
+            float cy = layer.y * height;
+            halfWidth = size * ((StickerSpec) layer).aspect() / 2f;
+            return new RectF(cx - halfWidth, cy - size / 2f, cx + halfWidth, cy + size / 2f);
         }
         float cx = layer.x * width;
         float cy = layer.y * height;

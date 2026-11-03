@@ -74,7 +74,11 @@ public final class EditorDialog extends Dialog implements EditorHost {
     private final List<ToolPanel> panels = new ArrayList<>();
     private FrameLayout panelArea;
     private int textTool;
+    private int stickerTool;
     private int motionTool;
+    private final android.os.Handler handler = new android.os.Handler(android.os.Looper.getMainLooper());
+    /** 画像を選んでいる間の受け取り口。CaptureInterceptor は弱参照で持つため、ここで強参照を持つ。 */
+    private java.util.function.Consumer<android.net.Uri> imagePicked;
     /** 表示区間をドラッグで変えている間か。 */
     private boolean rangeDragging;
     private TextView playButton;
@@ -318,6 +322,8 @@ public final class EditorDialog extends Dialog implements EditorHost {
         panels.add(new AdjustPanel(context, this));
         textTool = toolBar.add("Aa", "文字");
         panels.add(new TextPanel(context, this));
+        stickerTool = toolBar.add("☺︎", "スタンプ");
+        panels.add(new StickerPanel(context, this));
         motionTool = toolBar.add("↗", "動き");
         panels.add(new MotionPanel(context, this));
         root.addView(toolBar, new LinearLayout.LayoutParams(
@@ -455,10 +461,34 @@ public final class EditorDialog extends Dialog implements EditorHost {
         overlay.setSelected(selected);
         timeline.setSelected(selected);
         // 「動き」を開いているときは、要素を選び替えても「動き」のまま。
-        if (selected instanceof TextSpec && toolBar.selected() != motionTool) {
-            toolBar.select(textTool);
+        if (toolBar.selected() != motionTool) {
+            if (selected instanceof TextSpec) {
+                toolBar.select(textTool);
+            } else if (selected instanceof StickerSpec) {
+                toolBar.select(stickerTool);
+            }
         }
         notifyPanels();
+    }
+
+    @Override
+    public void pickImage(java.util.function.Consumer<android.graphics.Bitmap> callback) {
+        // CaptureInterceptor は受け取り口を弱参照で持つため、選び終わるまでここで持っておく。
+        imagePicked = uri -> new Thread(() -> {
+            android.graphics.Bitmap image = StickerImages.decode(getContext(), uri);
+            handler.post(() -> {
+                if (!isShowing()) {
+                    return;
+                }
+                if (image == null) {
+                    android.widget.Toast.makeText(getContext(), "この画像は読み込めませんでした",
+                            android.widget.Toast.LENGTH_SHORT).show();
+                    return;
+                }
+                callback.accept(image);
+            });
+        }, "cutlog-sticker").start();
+        CaptureInterceptor.pickImage(activity, imagePicked);
     }
 
     @Override

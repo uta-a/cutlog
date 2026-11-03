@@ -7,7 +7,6 @@ import android.graphics.drawable.GradientDrawable;
 import android.os.Handler;
 import android.os.Looper;
 import android.text.InputType;
-import android.view.Gravity;
 import android.view.View;
 import android.view.ViewGroup;
 import android.view.inputmethod.EditorInfo;
@@ -15,11 +14,9 @@ import android.view.inputmethod.InputMethodManager;
 import android.widget.EditText;
 import android.widget.HorizontalScrollView;
 import android.widget.LinearLayout;
-import android.widget.SeekBar;
 import android.widget.TextView;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.Locale;
 
 /** 文字の追加と、選んでいる文字のフォント・色・スタイル・サイズ・角度・削除。 */
 final class TextPanel extends ToolPanel {
@@ -79,13 +76,13 @@ final class TextPanel extends ToolPanel {
     private final List<TextView> styleChips = new ArrayList<>();
     /** 文字を選んでいる間だけ使える操作。 */
     private final List<View> selectionControls = new ArrayList<>();
-    private SeekBar sizeBar;
-    private SeekBar angleBar;
-    private TextView angleLabel;
+    private final LayerControls layerControls;
+    private boolean built;
 
     TextPanel(Context context, EditorHost host) {
         super(host);
         this.context = context;
+        this.layerControls = new LayerControls(context, host, TextSpec.class);
     }
 
     @Override
@@ -95,26 +92,10 @@ final class TextPanel extends ToolPanel {
         panel.addView(chipRow(buildFontChips()), spaced());
         panel.addView(buildColors(), spaced());
         panel.addView(chipRow(buildStyleChips()), spaced());
-        panel.addView(buildSizeRow(), spaced());
-        panel.addView(buildAngleRow());
-
-        LinearLayout footer = Ui.row(context);
-        footer.setPadding(0, Ui.dp(context, 8), 0, Ui.dp(context, 8));
-        TextView hint = Ui.text(context, "ドラッグで移動、2 本指で拡大・回転", 12, Ui.TEXT_SECONDARY, false);
-        footer.addView(hint, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
-        TextView delete = Ui.pillButton(context, "削除");
-        delete.setOnClickListener(v -> {
-            TextSpec selected = selectedText();
-            if (selected != null) {
-                host.spec().layers.remove(selected);
-                host.selectLayer(null);
-                host.layersChanged();
-            }
-        });
-        footer.addView(delete);
-        selectionControls.add(delete);
-        panel.addView(footer);
-
+        panel.addView(layerControls.sizeRow(), spaced());
+        panel.addView(layerControls.angleRow());
+        panel.addView(layerControls.footer("ドラッグで移動、2 本指で拡大・回転"));
+        built = true;
         onLayerSelected(host.selectedLayer());
         return panel;
     }
@@ -233,69 +214,6 @@ final class TextPanel extends ToolPanel {
         return colors;
     }
 
-    private View buildSizeRow() {
-        LinearLayout row = Ui.row(context);
-        row.addView(label("サイズ"));
-        sizeBar = Ui.seekBar(context, 100, 0);
-        sizeBar.setOnSeekBarChangeListener(new Ui.SeekListener() {
-            @Override
-            public void onProgressChanged(SeekBar seekBar, int progress, boolean fromUser) {
-                TextSpec selected = selectedText();
-                if (fromUser && selected != null) {
-                    selected.size = LayerOverlayView.MIN_SIZE
-                            + (LayerOverlayView.MAX_SIZE - LayerOverlayView.MIN_SIZE) * progress / 100f;
-                    host.layersChanged();
-                }
-            }
-        });
-        row.addView(sizeBar, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
-        selectionControls.add(sizeBar);
-        return row;
-    }
-
-    /** -180〜180 度。ラベルをタップすると 0 度に戻す。 */
-    private View buildAngleRow() {
-        LinearLayout row = Ui.row(context);
-        row.setPadding(0, Ui.dp(context, 4), 0, 0);
-        angleLabel = label("角度");
-        angleLabel.setOnClickListener(v -> {
-            TextSpec selected = selectedText();
-            if (selected != null) {
-                selected.rotation = 0f;
-                refresh(selected);
-                host.layersChanged();
-            }
-        });
-        row.addView(angleLabel);
-        angleBar = Ui.seekBar(context, 360, 180);
-        angleBar.setOnSeekBarChangeListener(new Ui.SeekListener() {
-            @Override
-            public void onProgressChanged(SeekBar seekBar, int progress, boolean fromUser) {
-                TextSpec selected = selectedText();
-                if (fromUser && selected != null) {
-                    selected.rotation = progress - 180;
-                    angleLabel.setText(angleText(selected.rotation));
-                    host.layersChanged();
-                }
-            }
-        });
-        row.addView(angleBar, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
-        selectionControls.add(angleBar);
-        selectionControls.add(angleLabel);
-        return row;
-    }
-
-    private TextView label(String text) {
-        TextView label = Ui.text(context, text, 14, Ui.TEXT_SECONDARY, false);
-        label.setMinWidth(Ui.dp(context, 64));
-        label.setGravity(Gravity.CENTER_VERTICAL);
-        return label;
-    }
-
-    private static String angleText(float rotation) {
-        return String.format(Locale.ROOT, "角度 %d°", Math.round(rotation));
-    }
-
     private LinearLayout.LayoutParams spaced() {
         LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
@@ -343,10 +261,11 @@ final class TextPanel extends ToolPanel {
 
     @Override
     void onLayerSelected(Layer layer) {
-        if (sizeBar == null) {
+        if (!built) {
             return;
         }
         TextSpec selected = layer instanceof TextSpec ? (TextSpec) layer : null;
+        layerControls.refresh(layer);
         for (View control : selectionControls) {
             control.setEnabled(selected != null);
             control.setAlpha(selected != null ? 1f : 0.35f);
@@ -368,14 +287,6 @@ final class TextPanel extends ToolPanel {
         }
         for (TextView chip : styleChips) {
             Ui.setChipSelected(context, chip, selected != null && ((Style) chip.getTag()).get(selected));
-        }
-        if (selected != null) {
-            sizeBar.setProgress(Math.round((selected.size - LayerOverlayView.MIN_SIZE)
-                    / (LayerOverlayView.MAX_SIZE - LayerOverlayView.MIN_SIZE) * 100f));
-            angleBar.setProgress(Math.round(selected.rotation) + 180);
-            angleLabel.setText(angleText(selected.rotation));
-        } else {
-            angleLabel.setText("角度");
         }
     }
 
