@@ -47,6 +47,10 @@ public final class CaptureInterceptor {
         appContext = activity.getApplicationContext();
     }
 
+    public static Context appContextOrNull() {
+        return appContext;
+    }
+
     public static Context appContext() {
         if (appContext == null) {
             throw new IllegalStateException("cutlog has not seen an activity yet.");
@@ -57,7 +61,7 @@ public final class CaptureInterceptor {
     /**
      * @return true なら cutlog が結果を預かった。本体はここで処理を止める。
      */
-    public static boolean onCaptured(CaptureHost host, Object result, Uri captured) {
+    public static boolean onCaptured(CaptureHost host, Object result, Uri capturedUri) {
         if (delivering) {
             return false;
         }
@@ -67,14 +71,16 @@ public final class CaptureInterceptor {
                 Log.w(TAG, "No activity for the editor; keeping the official flow.");
                 return false;
             }
-            if (!"file".equals(captured.getScheme()) || captured.getPath() == null) {
-                Log.w(TAG, "Unsupported capture uri: " + captured);
+            if (!"file".equals(capturedUri.getScheme()) || capturedUri.getPath() == null) {
+                Log.w(TAG, "Unsupported capture uri: " + capturedUri);
                 return false;
             }
-            File capturedFile = new File(captured.getPath());
+            File capturedFile = new File(capturedUri.getPath());
             CaptureReplacement replacement = applyTestReplacement(capturedFile);
             CaptureSession session = new CaptureSession(host, result, capturedFile, replacement);
-            new EditorDialog(activity, session, VideoFiles.readMetadata(capturedFile)).show();
+            CaptureReplacement captured = VideoFiles.readMetadata(capturedFile);
+            Log.i(TAG, "Captured: " + captured);
+            new EditorDialog(activity, session, captured).show();
             return true;
         } catch (IOException e) {
             Log.w(TAG, "Cannot read the capture; keeping the official flow.", e);

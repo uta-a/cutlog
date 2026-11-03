@@ -20,6 +20,11 @@ public final class OutputProfile {
 
     private OutputProfile() {}
 
+    /** 取り込んだ動画から切り出す長さ。撮影画面で選んだ長さに合わせ、公式の 2 秒なら公式の固定長にする。 */
+    public static long clipDurationMs(long selectedMs) {
+        return selectedMs <= 2_000L ? CLIP_DURATION_MS : selectedMs;
+    }
+
     /** 入力の向きに合わせた出力解像度 {幅, 高さ}。公式も回転メタデータではなく解像度で縦横を表す。 */
     public static int[] sizeFor(int width, int height) {
         return height > width ? new int[] {SHORT_SIDE, LONG_SIDE} : new int[] {LONG_SIDE, SHORT_SIDE};

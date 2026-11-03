@@ -103,7 +103,8 @@ public final class EditorDialog extends Dialog {
         int[] size = normalize ? OutputProfile.sizeFor(source.width, source.height) : new int[] {source.width, source.height};
         this.outputWidth = size[0];
         this.outputHeight = size[1];
-        this.clipDurationMs = Math.min(OutputProfile.CLIP_DURATION_MS, source.durationMs);
+        this.clipDurationMs = Math.min(
+                OutputProfile.clipDurationMs(dev.utaa.cutlog.extension.record.RecordDuration.selectedMs()), source.durationMs);
         spec.filter = Prefs.lastFilter(activity);
         setCancelable(false);
         setContentView(buildContent(activity));
@@ -325,8 +326,8 @@ public final class EditorDialog extends Dialog {
         panel.addView(bar, barParams);
         TextView hint = Ui.text(context,
                 maxStartMs > 0
-                        ? "公式の撮影と同じ " + seconds(clipDurationMs) + " 秒を切り出します"
-                        : "動画が " + seconds(OutputProfile.CLIP_DURATION_MS) + " 秒より短いため、全体を使います",
+                        ? "撮影画面で選んだ長さ（" + seconds(clipDurationMs) + " 秒）を切り出します"
+                        : "動画が選んだ長さより短いため、全体（" + seconds(clipDurationMs) + " 秒）を使います",
                 12, Ui.TEXT_SECONDARY, false);
         hint.setPadding(0, Ui.dp(context, 12), 0, 0);
         panel.addView(hint);
