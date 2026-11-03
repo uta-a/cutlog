@@ -7,6 +7,8 @@ import android.graphics.Typeface;
 import android.graphics.drawable.GradientDrawable;
 import android.util.TypedValue;
 import android.view.Gravity;
+import android.widget.LinearLayout;
+import android.widget.SeekBar;
 import android.widget.TextView;
 
 /**
@@ -88,6 +90,42 @@ final class Ui {
         }
         chip.setBackground(background);
         chip.setTextColor(selected ? TEXT_PRIMARY : TEXT_SECONDARY);
+    }
+
+    static SeekBar seekBar(Context context, int max, int progress) {
+        SeekBar bar = new SeekBar(context);
+        bar.setMax(max);
+        bar.setProgress(progress);
+        bar.setProgressTintList(accentTint());
+        bar.setProgressBackgroundTintList(trackTint());
+        bar.setThumbTintList(ColorStateList.valueOf(Color.WHITE));
+        return bar;
+    }
+
+    static LinearLayout row(Context context) {
+        LinearLayout row = new LinearLayout(context);
+        row.setOrientation(LinearLayout.HORIZONTAL);
+        row.setGravity(Gravity.CENTER_VERTICAL);
+        return row;
+    }
+
+    static LinearLayout column(Context context) {
+        LinearLayout column = new LinearLayout(context);
+        column.setOrientation(LinearLayout.VERTICAL);
+        column.setPadding(0, dp(context, 12), 0, 0);
+        return column;
+    }
+
+    /** 必要なメソッドだけ上書きできる {@link SeekBar.OnSeekBarChangeListener}。 */
+    abstract static class SeekListener implements SeekBar.OnSeekBarChangeListener {
+        @Override
+        public void onProgressChanged(SeekBar seekBar, int progress, boolean fromUser) {}
+
+        @Override
+        public void onStartTrackingTouch(SeekBar seekBar) {}
+
+        @Override
+        public void onStopTrackingTouch(SeekBar seekBar) {}
     }
 
     static ColorStateList accentTint() {

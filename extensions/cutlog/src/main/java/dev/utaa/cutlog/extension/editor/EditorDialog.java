@@ -7,13 +7,9 @@ import android.app.Dialog;
 import android.content.Context;
 import android.graphics.Color;
 import android.graphics.Outline;
-import android.graphics.drawable.GradientDrawable;
-import android.net.Uri;
 import android.os.Bundle;
-import android.os.Handler;
-import android.os.Looper;
-import android.text.InputType;
 import android.util.Log;
+import android.view.Choreographer;
 import android.view.Gravity;
 import android.view.KeyEvent;
 import android.view.TextureView;
@@ -22,53 +18,42 @@ import android.view.ViewGroup;
 import android.view.ViewOutlineProvider;
 import android.view.Window;
 import android.view.WindowManager;
-import android.view.inputmethod.EditorInfo;
 import android.view.inputmethod.InputMethodManager;
-import android.widget.EditText;
 import android.widget.FrameLayout;
-import android.widget.HorizontalScrollView;
 import android.widget.LinearLayout;
 import android.widget.ProgressBar;
-import android.widget.SeekBar;
+import android.widget.ScrollView;
 import android.widget.TextView;
 import dev.utaa.cutlog.extension.hook.CaptureInterceptor;
 import dev.utaa.cutlog.extension.hook.CaptureReplacement;
 import dev.utaa.cutlog.extension.hook.EditSession;
 import dev.utaa.cutlog.extension.pref.Prefs;
+import dev.utaa.cutlog.extension.record.RecordDuration;
 import dev.utaa.cutlog.extension.render.EffectsFactory;
 import dev.utaa.cutlog.extension.render.OutputProfile;
 import dev.utaa.cutlog.extension.render.Renderer;
 import dev.utaa.cutlog.shaded.androidx.media3.common.Effect;
 import dev.utaa.cutlog.shaded.androidx.media3.common.MediaItem;
-import dev.utaa.cutlog.shaded.androidx.media3.common.Player;
-import dev.utaa.cutlog.shaded.androidx.media3.exoplayer.ExoPlayer;
 import java.io.File;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.List;
 
 /**
- * 撮影直後に出す全画面の編集画面（F1〜F3）。
+ * 撮影直後・取り込み直後に出す全画面の編集画面。
  *
- * <p>見た目は setlog の送信先選択画面に揃える。プレビュー左上の ✕ がキャンセル、右上のピンクの ↑ が
- * 「編集して投稿」、下の行が「そのまま投稿」。カメラ画面の Activity の上に重ねるだけなので、
+ * <p>上から、プレビュー（左上の ✕ でキャンセル、右上のピンクの ↑ で書き出して投稿）、再生の行、
+ * タイムライン、選んだツールのパネル、ツールバー。カメラ画面の Activity の上に重ねるだけなので、
  * 閉じれば本体の撮影画面の状態がそのまま残る。結果は {@link EditSession} を通して一度だけ本体へ返す。
  */
-public final class EditorDialog extends Dialog {
-    private static final int[] TEXT_COLORS = {
-        Color.WHITE, Color.BLACK, 0xFFFF3B30, 0xFFFFCC00, 0xFF34C759, 0xFF32ADE6, Ui.ACCENT,
-    };
-    private static final float MIN_TEXT_SIZE = 0.03f;
-    private static final float MAX_TEXT_SIZE = 0.20f;
-    private static final float DEFAULT_TEXT_SIZE = 0.08f;
-
+public final class EditorDialog extends Dialog implements EditorHost {
     private final Activity activity;
     private final EditSession session;
     /** 入力の動画（表示上の向きの幅・高さ）。 */
     private final CaptureReplacement source;
     /** 取り込んだ動画を公式撮影分の仕様へ揃える（トリムあり、そのまま投稿なし）。 */
     private final boolean normalize;
-    /** 書き出しの幅・高さ。プレビューの縦横比とテキストの描画もこれに合わせる。 */
+    /** 書き出しの幅・高さ。プレビューの縦横比と文字の描画もこれに合わせる。 */
     private final int outputWidth;
     private final int outputHeight;
     /** 取り込んだ動画から切り出す長さと、開始位置。 */
@@ -76,23 +61,26 @@ public final class EditorDialog extends Dialog {
     private long clipStartMs;
     private final EditSpec spec = new EditSpec();
 
-    /** スライダーを続けて動かしたときに、プレビューを作り直す回数を抑える。 */
-    private static final long PREVIEW_REBUILD_DELAY_MS = 150;
-
-    private final Handler handler = new Handler(Looper.getMainLooper());
-    private final Runnable rebuildPreview = this::rebuildPreview;
-    private ExoPlayer player;
+    private PreviewController preview;
+    private ThumbnailLoader thumbnails;
     private Renderer renderer;
+    private Layer selected;
+
     private TextureView previewTexture;
-    private TextOverlayView overlay;
+    private LayerOverlayView overlay;
+    private TimelineView timeline;
+    private ToolBar toolBar;
+    private final List<ToolPanel> panels = new ArrayList<>();
+    private FrameLayout panelArea;
+    private int textTool;
+    private TextView playButton;
+    private TextView timeLabel;
     private TextView sendButton;
     private ProgressBar sendProgress;
     private TextView closeButton;
-    private View originalRow;
-    private final List<TextView> filterChips = new ArrayList<>();
-    private final List<View> colorSwatches = new ArrayList<>();
-    private final List<View> textControls = new ArrayList<>();
-    private SeekBar textSizeBar;
+    private TextView originalButton;
+    /** スクラブ前に再生していたか。 */
+    private boolean playingBeforeScrub;
 
     public EditorDialog(Activity activity, EditSession session, CaptureReplacement source) {
         super(activity, android.R.style.Theme_Black_NoTitleBar_Fullscreen);
@@ -103,8 +91,7 @@ public final class EditorDialog extends Dialog {
         int[] size = normalize ? OutputProfile.sizeFor(source.width, source.height) : new int[] {source.width, source.height};
         this.outputWidth = size[0];
         this.outputHeight = size[1];
-        this.clipDurationMs = Math.min(
-                OutputProfile.clipDurationMs(dev.utaa.cutlog.extension.record.RecordDuration.selectedMs()), source.durationMs);
+        this.clipDurationMs = Math.min(OutputProfile.clipDurationMs(RecordDuration.selectedMs()), source.durationMs);
         spec.filter = Prefs.lastFilter(activity);
         setCancelable(false);
         setContentView(buildContent(activity));
@@ -129,15 +116,15 @@ public final class EditorDialog extends Dialog {
     private final Application.ActivityLifecycleCallbacks lifecycle = new Application.ActivityLifecycleCallbacks() {
         @Override
         public void onActivityResumed(Activity a) {
-            if (player != null) {
-                player.play();
+            if (preview != null) {
+                preview.resume();
             }
         }
 
         @Override
         public void onActivityPaused(Activity a) {
-            if (player != null) {
-                player.pause();
+            if (preview != null) {
+                preview.pause();
             }
         }
 
@@ -167,7 +154,21 @@ public final class EditorDialog extends Dialog {
     @Override
     public void show() {
         super.show();
-        startPreview();
+        preview = new PreviewController(getContext(), previewTexture, new PreviewController.Source() {
+            @Override
+            public MediaItem mediaItem() {
+                return previewItem();
+            }
+
+            @Override
+            public List<Effect> effects() {
+                return previewEffects();
+            }
+        });
+        preview.start();
+        thumbnails = new ThumbnailLoader(getContext(), session.source());
+        loadThumbnails();
+        Choreographer.getInstance().postFrameCallback(ticker);
     }
 
     @Override
@@ -181,6 +182,27 @@ public final class EditorDialog extends Dialog {
         super.dismiss();
     }
 
+    /** 書き出し後の動画の長さ。タイムラインの長さもこれ。 */
+    private long durationMs() {
+        return normalize ? clipDurationMs : source.durationMs;
+    }
+
+    /** 再生位置を毎フレーム、タイムラインと時間の表示に映す。 */
+    private final Choreographer.FrameCallback ticker = new Choreographer.FrameCallback() {
+        @Override
+        public void doFrame(long frameTimeNanos) {
+            if (preview == null) {
+                return;
+            }
+            long position = preview.positionMs();
+            timeline.setPositionMs(position);
+            timeLabel.setText(TrimPanel.seconds(position) + " / " + TrimPanel.seconds(durationMs()) + " 秒");
+            playButton.setText(preview.isPlaying() ? "❚❚" : "▶");
+            playButton.setContentDescription(preview.isPlaying() ? "一時停止" : "再生");
+            Choreographer.getInstance().postFrameCallback(this);
+        }
+    };
+
     // ---- 画面構成 ----
 
     private View buildContent(Context context) {
@@ -188,36 +210,60 @@ public final class EditorDialog extends Dialog {
         root.setOrientation(LinearLayout.VERTICAL);
         root.setBackgroundColor(Ui.BACKGROUND);
         int gutter = Ui.dp(context, 12);
-        root.setPadding(gutter, gutter, gutter, gutter);
+        root.setPadding(gutter, gutter, gutter, Ui.dp(context, 4));
 
         root.addView(buildPreview(context), new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f));
+        root.addView(buildTransport(context));
 
-        FrameLayout panels = new FrameLayout(context);
-        List<String> labels = new ArrayList<>();
-        List<View> tabPanels = new ArrayList<>();
+        timeline = new TimelineView(context, spec, new TimelineView.Listener() {
+            @Override
+            public void onScrubStart() {
+                playingBeforeScrub = preview.isPlaying();
+                preview.setPlaying(false);
+            }
+
+            @Override
+            public void onScrub(long positionMs) {
+                preview.seekTo(positionMs);
+            }
+
+            @Override
+            public void onScrubEnd() {
+                preview.setPlaying(playingBeforeScrub);
+            }
+
+            @Override
+            public void onLayerTapped(Layer layer) {
+                selectLayer(layer);
+            }
+        });
+        timeline.setDurationMs(durationMs());
+        MaxHeightScrollView timelineScroll = new MaxHeightScrollView(context, Ui.dp(context, 132));
+        timelineScroll.addView(timeline);
+        root.addView(timelineScroll, new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+
+        // パネルの中身が高さを超えたらスクロールする（項目の多いパネルでもツールバーに重ねない）。
+        ScrollView panelScroll = new ScrollView(context);
+        panelScroll.setVerticalScrollBarEnabled(false);
+        panelArea = new FrameLayout(context);
+        panelScroll.addView(panelArea);
+        root.addView(panelScroll, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, Ui.dp(context, 176)));
+
+        toolBar = new ToolBar(context, this::showPanel);
         if (normalize) {
-            labels.add("トリム");
-            tabPanels.add(buildTrimPanel(context));
+            toolBar.add("✂︎", "トリム");
+            panels.add(new TrimPanel(context, this, source.durationMs, clipDurationMs, this::onTrimChanged));
         }
-        labels.add("フィルター");
-        tabPanels.add(buildFilterPanel(context));
-        labels.add("調整");
-        tabPanels.add(buildAdjustPanel(context));
-        labels.add("テキスト");
-        tabPanels.add(buildTextPanel(context));
-        for (View panel : tabPanels) {
-            panels.addView(panel);
-        }
-        LinearLayout.LayoutParams tabsParams = new LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
-        tabsParams.topMargin = Ui.dp(context, 16);
-        root.addView(buildTabs(context, labels.toArray(new String[0]), tabPanels.toArray(new View[0])), tabsParams);
-        root.addView(panels, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, Ui.dp(context, 196)));
-
-        // 取り込んだ動画は公式撮影分の仕様へ揃える必要があるため、「そのまま投稿」は出さない。
-        originalRow = buildOriginalRow(context);
-        originalRow.setVisibility(normalize ? View.GONE : View.VISIBLE);
-        root.addView(originalRow);
+        toolBar.add("◐", "フィルター");
+        panels.add(new FilterPanel(context, this));
+        toolBar.add("☼", "調整");
+        panels.add(new AdjustPanel(context, this));
+        textTool = toolBar.add("Aa", "文字");
+        panels.add(new TextPanel(context, this));
+        root.addView(toolBar, new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+        toolBar.select(0);
         return root;
     }
 
@@ -237,7 +283,15 @@ public final class EditorDialog extends Dialog {
 
         previewTexture = new TextureView(context);
         frame.addView(previewTexture, matchParent());
-        overlay = new TextOverlayView(context, spec, this::onTextSelected);
+        overlay = new LayerOverlayView(context, spec, new LayerOverlayView.Listener() {
+            @Override
+            public void onLayerTapped(Layer layer) {
+                selectLayer(layer);
+            }
+
+            @Override
+            public void onLayerMoved(Layer layer) {}
+        });
         frame.addView(overlay, matchParent());
 
         int buttonSize = Ui.dp(context, 44);
@@ -274,233 +328,89 @@ public final class EditorDialog extends Dialog {
         return area;
     }
 
-    /** 「カメラ／ログ」の切り替えと同じ形のタブ。 */
-    private View buildTabs(Context context, String[] labels, View[] panels) {
-        LinearLayout tabs = new LinearLayout(context);
-        tabs.setOrientation(LinearLayout.HORIZONTAL);
-        int padding = Ui.dp(context, 4);
-        tabs.setPadding(padding, padding, padding, padding);
-        tabs.setBackground(Ui.pill(Ui.SURFACE));
-        List<TextView> buttons = new ArrayList<>();
-        for (int i = 0; i < labels.length; i++) {
-            int index = i;
-            TextView tab = Ui.text(context, labels[i], 15, Ui.TEXT_SECONDARY, false);
-            tab.setGravity(Gravity.CENTER);
-            tab.setPadding(0, Ui.dp(context, 10), 0, Ui.dp(context, 10));
-            tab.setOnClickListener(v -> showTab(buttons, panels, index));
-            buttons.add(tab);
-            tabs.addView(tab, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
-        }
-        showTab(buttons, panels, 0);
-        return tabs;
-    }
-
-    private View buildOriginalRow(Context context) {
-        LinearLayout row = new LinearLayout(context);
-        row.setOrientation(LinearLayout.VERTICAL);
-        row.setGravity(Gravity.CENTER_VERTICAL);
-        row.setBackground(Ui.rounded(context, Ui.SURFACE, 22));
-        int padding = Ui.dp(context, 18);
-        row.setPadding(padding, Ui.dp(context, 14), padding, Ui.dp(context, 14));
-        row.addView(Ui.text(context, "そのまま投稿", 16, Ui.TEXT_PRIMARY, true));
-        TextView detail = Ui.text(context, "編集せずに撮影した動画で進みます", 13, Ui.TEXT_SECONDARY, false);
-        LinearLayout.LayoutParams detailParams = new LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
-        detailParams.topMargin = Ui.dp(context, 4);
-        row.addView(detail, detailParams);
-        row.setClickable(true);
-        row.setOnClickListener(v -> deliverOriginal());
+    /** 再生・一時停止、再生位置、（撮影した動画なら）そのまま投稿。 */
+    private View buildTransport(Context context) {
+        LinearLayout row = Ui.row(context);
+        int vertical = Ui.dp(context, 8);
+        row.setPadding(Ui.dp(context, 4), vertical, 0, Ui.dp(context, 2));
+        playButton = Ui.text(context, "❚❚", 14, Ui.TEXT_PRIMARY, true);
+        playButton.setGravity(Gravity.CENTER);
+        playButton.setBackground(Ui.circle(Ui.SURFACE));
+        playButton.setOnClickListener(v -> preview.setPlaying(!preview.isPlaying()));
+        int size = Ui.dp(context, 36);
+        row.addView(playButton, new LinearLayout.LayoutParams(size, size));
+        timeLabel = Ui.text(context, "", 13, Ui.TEXT_SECONDARY, false);
+        timeLabel.setFontFeatureSettings("tnum");
+        LinearLayout.LayoutParams timeParams = new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f);
+        timeParams.leftMargin = Ui.dp(context, 10);
+        row.addView(timeLabel, timeParams);
+        // 取り込んだ動画は公式撮影分の仕様へ揃える必要があるため、「そのまま投稿」は出さない。
+        originalButton = Ui.pillButton(context, "そのまま投稿");
+        originalButton.setTextSize(13);
+        originalButton.setPadding(Ui.dp(context, 14), Ui.dp(context, 8), Ui.dp(context, 14), Ui.dp(context, 8));
+        originalButton.setOnClickListener(v -> deliverOriginal());
+        originalButton.setVisibility(normalize ? View.GONE : View.VISIBLE);
+        row.addView(originalButton);
         return row;
     }
 
-    /** 取り込んだ動画から、公式と同じ長さの区間を選ぶ。 */
-    private View buildTrimPanel(Context context) {
-        LinearLayout panel = column(context);
-        TextView range = Ui.text(context, "", 15, Ui.TEXT_PRIMARY, false);
-        panel.addView(range);
-        long maxStartMs = Math.max(0, source.durationMs - clipDurationMs);
-        SeekBar bar = seekBar(context, (int) maxStartMs, 0);
-        LinearLayout.LayoutParams barParams = new LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
-        barParams.topMargin = Ui.dp(context, 16);
-        panel.addView(bar, barParams);
-        TextView hint = Ui.text(context,
-                maxStartMs > 0
-                        ? "撮影画面で選んだ長さ（" + seconds(clipDurationMs) + " 秒）を切り出します"
-                        : "動画が選んだ長さより短いため、全体（" + seconds(clipDurationMs) + " 秒）を使います",
-                12, Ui.TEXT_SECONDARY, false);
-        hint.setPadding(0, Ui.dp(context, 12), 0, 0);
-        panel.addView(hint);
-        bar.setEnabled(maxStartMs > 0);
-        Runnable updateLabel = () -> range.setText(
-                seconds(clipStartMs) + " 〜 " + seconds(clipStartMs + clipDurationMs) + " 秒（全体 " + seconds(source.durationMs) + " 秒）");
-        updateLabel.run();
-        bar.setOnSeekBarChangeListener(new SimpleSeekBarListener() {
-            @Override
-            public void onProgressChanged(SeekBar seekBar, int progress, boolean fromUser) {
-                if (fromUser) {
-                    clipStartMs = progress;
-                    updateLabel.run();
-                }
-            }
-
-            @Override
-            public void onStopTrackingTouch(SeekBar seekBar) {
-                updatePreviewEffects();
-            }
-        });
-        return panel;
+    private void showPanel(int index) {
+        panelArea.removeAllViews();
+        ToolPanel panel = panels.get(index);
+        panelArea.addView(panel.view(), new FrameLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+        panel.onLayerSelected(selected);
     }
 
-    private static String seconds(long ms) {
-        return String.format(java.util.Locale.ROOT, "%.1f", ms / 1000f);
+    // ---- EditorHost ----
+
+    @Override
+    public EditSpec spec() {
+        return spec;
     }
 
-    private View buildFilterPanel(Context context) {
-        HorizontalScrollView scroll = new HorizontalScrollView(context);
-        scroll.setHorizontalScrollBarEnabled(false);
-        LinearLayout list = new LinearLayout(context);
-        list.setOrientation(LinearLayout.HORIZONTAL);
-        list.setGravity(Gravity.CENTER_VERTICAL);
-        list.setPadding(0, Ui.dp(context, 16), 0, 0);
-        for (FilterPreset preset : FilterPreset.values()) {
-            TextView chip = Ui.pillButton(context, preset.label);
-            chip.setTag(preset);
-            chip.setOnClickListener(v -> {
-                spec.filter = preset;
-                refreshFilterChips();
-                updatePreviewEffects();
-            });
-            filterChips.add(chip);
-            LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(
-                    ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
-            params.rightMargin = Ui.dp(context, 8);
-            list.addView(chip, params);
+    @Override
+    public void videoEffectsChanged() {
+        if (preview != null) {
+            preview.effectsChanged();
         }
-        refreshFilterChips();
-        scroll.addView(list);
-        return scroll;
     }
 
-    private View buildAdjustPanel(Context context) {
-        LinearLayout panel = column(context);
-        panel.addView(slider(context, "明るさ", value -> spec.brightness = value));
-        panel.addView(slider(context, "コントラスト", value -> spec.contrast = value));
-        panel.addView(slider(context, "彩度", value -> spec.saturation = value));
-        return panel;
+    @Override
+    public void layersChanged() {
+        overlay.invalidate();
+        timeline.layersChanged();
     }
 
-    private View buildTextPanel(Context context) {
-        LinearLayout panel = column(context);
+    @Override
+    public Layer selectedLayer() {
+        return selected;
+    }
 
-        LinearLayout inputRow = row(context);
-        EditText input = new EditText(context);
-        input.setHint("テキストを入力");
-        input.setSingleLine(true);
-        input.setInputType(InputType.TYPE_CLASS_TEXT);
-        input.setImeOptions(EditorInfo.IME_ACTION_DONE);
-        input.setTextColor(Ui.TEXT_PRIMARY);
-        input.setHintTextColor(Ui.TEXT_SECONDARY);
-        input.setTextSize(15);
-        input.setBackground(Ui.pill(Ui.SURFACE));
-        input.setPadding(Ui.dp(context, 18), Ui.dp(context, 11), Ui.dp(context, 18), Ui.dp(context, 11));
-        inputRow.addView(input, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
-        TextView add = Ui.pillButton(context, "追加");
-        add.setBackground(Ui.pill(Ui.ACCENT));
-        add.setTypeface(android.graphics.Typeface.DEFAULT_BOLD);
-        add.setOnClickListener(v -> addText(input));
-        input.setOnEditorActionListener((view, actionId, event) -> {
-            addText(input);
-            return true;
-        });
-        LinearLayout.LayoutParams addParams = new LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
-        addParams.leftMargin = Ui.dp(context, 8);
-        inputRow.addView(add, addParams);
-        panel.addView(inputRow);
-
-        LinearLayout colors = row(context);
-        colors.setPadding(0, Ui.dp(context, 12), 0, 0);
-        for (int color : TEXT_COLORS) {
-            View swatch = new View(context);
-            swatch.setTag(color);
-            swatch.setOnClickListener(v -> {
-                TextSpec selected = overlay.selected();
-                if (selected != null) {
-                    selected.color = color;
-                    refreshSwatches(selected);
-                    overlay.invalidate();
-                }
-            });
-            int size = Ui.dp(context, 30);
-            LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(size, size);
-            params.rightMargin = Ui.dp(context, 12);
-            colors.addView(swatch, params);
-            colorSwatches.add(swatch);
-            textControls.add(swatch);
+    @Override
+    public void selectLayer(Layer layer) {
+        selected = layer != null && spec.layers.contains(layer) ? layer : null;
+        overlay.setSelected(selected);
+        timeline.setSelected(selected);
+        if (selected instanceof TextSpec) {
+            toolBar.select(textTool);
         }
-        panel.addView(colors);
-
-        LinearLayout sizeRow = row(context);
-        sizeRow.setPadding(0, Ui.dp(context, 8), 0, 0);
-        TextView sizeLabel = Ui.text(context, "サイズ", 14, Ui.TEXT_SECONDARY, false);
-        sizeLabel.setMinWidth(Ui.dp(context, 64));
-        sizeRow.addView(sizeLabel);
-        textSizeBar = seekBar(context, 100, 0);
-        textSizeBar.setOnSeekBarChangeListener(new SimpleSeekBarListener() {
-            @Override
-            public void onProgressChanged(SeekBar seekBar, int progress, boolean fromUser) {
-                TextSpec selected = overlay.selected();
-                if (fromUser && selected != null) {
-                    selected.size = MIN_TEXT_SIZE + (MAX_TEXT_SIZE - MIN_TEXT_SIZE) * progress / 100f;
-                    overlay.invalidate();
-                }
-            }
-        });
-        sizeRow.addView(textSizeBar, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
-        TextView delete = Ui.pillButton(context, "削除");
-        delete.setOnClickListener(v -> {
-            TextSpec selected = overlay.selected();
-            if (selected != null) {
-                spec.texts.remove(selected);
-                overlay.select(null);
-            }
-        });
-        sizeRow.addView(delete);
-        textControls.add(textSizeBar);
-        textControls.add(delete);
-        panel.addView(sizeRow);
-
-        TextView hint = Ui.text(context, "プレビューのテキストはドラッグで動かせます", 12, Ui.TEXT_SECONDARY, false);
-        hint.setPadding(0, Ui.dp(context, 10), 0, 0);
-        panel.addView(hint);
-        onTextSelected(null);
-        return panel;
+        for (ToolPanel panel : panels) {
+            panel.onLayerSelected(selected);
+        }
     }
 
     // ---- 操作 ----
 
-    private void addText(EditText input) {
-        String text = input.getText().toString().trim();
-        if (text.isEmpty()) {
-            return;
-        }
-        float offset = 0.08f * (spec.texts.size() % 5);
-        TextSpec added = new TextSpec(text, Color.WHITE, DEFAULT_TEXT_SIZE, 0.5f, 0.5f + offset);
-        spec.texts.add(added);
-        input.setText("");
-        overlay.select(added);
+    private void onTrimChanged(long startMs) {
+        clipStartMs = startMs;
+        preview.mediaChanged();
+        loadThumbnails();
     }
 
-    private void onTextSelected(TextSpec selected) {
-        for (View control : textControls) {
-            control.setEnabled(selected != null);
-            control.setAlpha(selected != null ? 1f : 0.35f);
-        }
-        refreshSwatches(selected);
-        if (selected != null && textSizeBar != null) {
-            textSizeBar.setProgress(Math.round((selected.size - MIN_TEXT_SIZE) / (MAX_TEXT_SIZE - MIN_TEXT_SIZE) * 100f));
-        }
+    private void loadThumbnails() {
+        long start = normalize ? clipStartMs : 0;
+        thumbnails.load(start, durationMs(), frames -> timeline.setThumbnails(frames));
     }
 
     private void confirmCancel() {
@@ -596,27 +506,13 @@ public final class EditorDialog extends Dialog {
     private void setBusy(boolean busy) {
         sendButton.setVisibility(busy ? View.INVISIBLE : View.VISIBLE);
         sendProgress.setVisibility(busy ? View.VISIBLE : View.GONE);
-        for (View view : new View[] {closeButton, originalRow}) {
+        for (View view : new View[] {closeButton, originalButton}) {
             view.setEnabled(!busy);
             view.setAlpha(busy ? 0.35f : 1f);
         }
     }
 
     // ---- プレビュー ----
-
-    private void startPreview() {
-        startPreview(0);
-    }
-
-    private void startPreview(long positionMs) {
-        player = new ExoPlayer.Builder(getContext()).build();
-        player.setRepeatMode(Player.REPEAT_MODE_ONE);
-        player.setVideoTextureView(previewTexture);
-        player.setVideoEffects(previewEffects());
-        player.setMediaItem(previewItem(), positionMs);
-        player.prepare();
-        player.play();
-    }
 
     /** プレビューの Effect。取り込んだ動画は書き出しと同じく出力解像度へ切り抜いてから色を変える。 */
     private List<Effect> previewEffects() {
@@ -640,127 +536,27 @@ public final class EditorDialog extends Dialog {
         return item.build();
     }
 
-    /**
-     * 再生中のプレイヤーに {@code setVideoEffects} を何度も送ると、ループの境目で映像も音声も止まる
-     * （media3 1.11.1 / Android 13 実機で再現）。そのため色の編集を変えたら、少し待ってから
-     * 新しい Effect でプレイヤーを作り直し、同じ位置から再生を続ける。
-     */
-    private void updatePreviewEffects() {
-        handler.removeCallbacks(rebuildPreview);
-        handler.postDelayed(rebuildPreview, PREVIEW_REBUILD_DELAY_MS);
-    }
-
-    private void rebuildPreview() {
-        if (player == null) {
-            return;
-        }
-        // 区間を変えたら区間の先頭から、色だけ変えたら同じ位置から再生する。
-        long positionMs = Math.min(player.getCurrentPosition(), clipDurationMs);
-        player.release();
-        startPreview(positionMs);
-    }
-
     private void release() {
         activity.unregisterActivityLifecycleCallbacks(lifecycle);
-        handler.removeCallbacks(rebuildPreview);
+        Choreographer.getInstance().removeFrameCallback(ticker);
         if (renderer != null) {
             renderer.cancel();
             renderer = null;
         }
-        if (player != null) {
-            player.release();
-            player = null;
+        if (preview != null) {
+            preview.release();
+            preview = null;
+        }
+        if (thumbnails != null) {
+            thumbnails.release();
+            thumbnails = null;
         }
     }
 
     // ---- 部品 ----
 
-    private interface FloatSetter {
-        void set(float value);
-    }
-
-    private View slider(Context context, String name, FloatSetter setter) {
-        LinearLayout row = row(context);
-        row.setPadding(0, Ui.dp(context, 12), 0, 0);
-        TextView label = Ui.text(context, name, 14, Ui.TEXT_SECONDARY, false);
-        label.setMinWidth(Ui.dp(context, 104));
-        row.addView(label);
-        SeekBar bar = seekBar(context, 200, 100);
-        bar.setOnSeekBarChangeListener(new SimpleSeekBarListener() {
-            @Override
-            public void onStopTrackingTouch(SeekBar seekBar) {
-                setter.set((seekBar.getProgress() - 100) / 100f);
-                updatePreviewEffects();
-            }
-        });
-        row.addView(bar, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
-        return row;
-    }
-
-    private static SeekBar seekBar(Context context, int max, int progress) {
-        SeekBar bar = new SeekBar(context);
-        bar.setMax(max);
-        bar.setProgress(progress);
-        bar.setProgressTintList(Ui.accentTint());
-        bar.setProgressBackgroundTintList(Ui.trackTint());
-        bar.setThumbTintList(android.content.res.ColorStateList.valueOf(Color.WHITE));
-        return bar;
-    }
-
-    private void refreshFilterChips() {
-        for (TextView chip : filterChips) {
-            Ui.setChipSelected(getContext(), chip, chip.getTag() == spec.filter);
-        }
-    }
-
-    private void refreshSwatches(TextSpec selected) {
-        Context context = getContext();
-        for (View swatch : colorSwatches) {
-            int color = (Integer) swatch.getTag();
-            GradientDrawable shape = Ui.circle(color);
-            boolean current = selected != null && selected.color == color;
-            shape.setStroke(Ui.dp(context, current ? 3 : 1), current ? Ui.ACCENT : Ui.STROKE);
-            swatch.setBackground(shape);
-        }
-    }
-
-    private static void showTab(List<TextView> tabs, View[] panels, int index) {
-        for (int i = 0; i < panels.length; i++) {
-            boolean selected = i == index;
-            panels[i].setVisibility(selected ? View.VISIBLE : View.GONE);
-            TextView tab = tabs.get(i);
-            tab.setBackground(selected ? Ui.pill(Ui.BACKGROUND) : null);
-            tab.setTextColor(selected ? Ui.TEXT_PRIMARY : Ui.TEXT_SECONDARY);
-        }
-    }
-
-    private static LinearLayout row(Context context) {
-        LinearLayout row = new LinearLayout(context);
-        row.setOrientation(LinearLayout.HORIZONTAL);
-        row.setGravity(Gravity.CENTER_VERTICAL);
-        return row;
-    }
-
-    private static LinearLayout column(Context context) {
-        LinearLayout column = new LinearLayout(context);
-        column.setOrientation(LinearLayout.VERTICAL);
-        column.setPadding(0, Ui.dp(context, 12), 0, 0);
-        return column;
-    }
-
     private static FrameLayout.LayoutParams matchParent() {
         return new FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT);
-    }
-
-    private abstract static class SimpleSeekBarListener implements SeekBar.OnSeekBarChangeListener {
-        @Override
-        public void onProgressChanged(SeekBar seekBar, int progress, boolean fromUser) {}
-
-        @Override
-        public void onStartTrackingTouch(SeekBar seekBar) {}
-
-        @Override
-        public void onStopTrackingTouch(SeekBar seekBar) {}
     }
 
     /** 子 View を動画と同じ縦横比で、親の中に収まる最大の大きさにする。 */
@@ -785,6 +581,22 @@ public final class EditorDialog extends Dialog {
             super.onMeasure(
                     MeasureSpec.makeMeasureSpec(width, MeasureSpec.EXACTLY),
                     MeasureSpec.makeMeasureSpec(height, MeasureSpec.EXACTLY));
+        }
+    }
+
+    /** 中身に合わせて伸びるが、maxHeight を超えたらスクロールする。要素が増えてもプレビューを潰さない。 */
+    private static final class MaxHeightScrollView extends ScrollView {
+        private final int maxHeight;
+
+        MaxHeightScrollView(Context context, int maxHeight) {
+            super(context);
+            this.maxHeight = maxHeight;
+            setVerticalScrollBarEnabled(false);
+        }
+
+        @Override
+        protected void onMeasure(int widthMeasureSpec, int heightMeasureSpec) {
+            super.onMeasure(widthMeasureSpec, MeasureSpec.makeMeasureSpec(maxHeight, MeasureSpec.AT_MOST));
         }
     }
 }

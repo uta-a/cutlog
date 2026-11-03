@@ -10,13 +10,14 @@ public final class EditSpec {
     public float brightness;
     public float contrast;
     public float saturation;
-    public final List<TextSpec> texts = new ArrayList<>();
+    /** 動画の上に重ねる要素。後ろほど手前に描く。 */
+    public final List<Layer> layers = new ArrayList<>();
 
     public boolean hasColorEdits() {
         return filter != FilterPreset.NONE || brightness != 0f || contrast != 0f || saturation != 0f;
     }
 
     public boolean isEmpty() {
-        return !hasColorEdits() && texts.isEmpty();
+        return !hasColorEdits() && layers.isEmpty();
     }
 }

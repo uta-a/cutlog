@@ -4,7 +4,7 @@ import android.graphics.Bitmap;
 import android.graphics.Canvas;
 import dev.utaa.cutlog.extension.editor.EditSpec;
 import dev.utaa.cutlog.extension.editor.FilterPreset;
-import dev.utaa.cutlog.extension.editor.TextPainter;
+import dev.utaa.cutlog.extension.editor.LayerPainter;
 import dev.utaa.cutlog.shaded.androidx.media3.common.Effect;
 import dev.utaa.cutlog.shaded.androidx.media3.effect.BitmapOverlay;
 import dev.utaa.cutlog.shaded.androidx.media3.effect.Brightness;
@@ -75,12 +75,12 @@ public final class EffectsFactory {
         return effects;
     }
 
-    /** 書き出し用。色の編集の後にテキストを焼き込む。 */
+    /** 書き出し用。色の編集の後に文字・スタンプを焼き込む。 */
     public static List<Effect> exportEffects(EditSpec spec, int width, int height) {
         List<Effect> effects = colorEffects(spec);
-        if (!spec.texts.isEmpty()) {
+        if (!spec.layers.isEmpty()) {
             Bitmap bitmap = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888);
-            new TextPainter().draw(new Canvas(bitmap), width, height, spec.texts);
+            new LayerPainter().draw(new Canvas(bitmap), width, height, spec.layers);
             List<TextureOverlay> overlays =
                     Collections.singletonList(BitmapOverlay.createStaticBitmapOverlay(bitmap));
             effects.add(new OverlayEffect(overlays));
