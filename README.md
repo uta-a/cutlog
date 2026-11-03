@@ -2,7 +2,7 @@
 
 setlog（New Chat Inc. の Android アプリ、`com.newchat.setlog`）向けの Morphe パッチバンドル。「撮った動画を投稿前に編集する」「端末内の任意の動画をその時間のログとして投稿する」を追加する。linimal と同じ構成（patches + extension）。
 
-Phase 0 の静的調査は完了。Phase 1 のローカルインストール元チェックと録画完了時の動画差し替え PoC は実装済み。差し替えた動画を dev グループへ投稿し、別端末で再生できることはユーザー確認済みで、Phase 1 は Go。途中のロック問題は受信側の鍵再生成で解消した。投稿前編集は未実装。
+Phase 0 の静的調査は完了。Phase 1 のローカルインストール元チェックと録画完了時の動画差し替え PoC は実装済み。差し替えた動画を dev グループへ投稿し、別端末で再生できることはユーザー確認済みで、Phase 1 は Go。途中のロック問題は受信側の鍵再生成で解消した。Phase 2 の投稿前編集（F1〜F3）は実装済みで、実機で編集・書き出し・本体の送信先画面への受け渡しまで確認した（編集済み動画の投稿は未確認）。
 
 ## ドキュメント
 
@@ -42,21 +42,47 @@ java -jar <morphe-desktop-all.jar> patch \
 
 検証済み: バンドルのビルド、実 APKM への適用・既存開発鍵での署名、`apksigner verify`、生成 APK の jadx 再解析で `return true` を確認。署名済み検証 APK は `scratch/setlog-installer-check.apk`。Android 13 の実機（23043RP34G）へ `adb install -r` で上書きし、コールド起動でログイン画面への到達、40 秒後も同一プロセスが生存することを確認。観測中に「安全設定を完了」画面へ進んだ。暗号鍵の移行・新規作成と、過去動画へのアクセス・投稿は未確認。
 
-## 動画差し替え PoC のパッチ
+## 投稿前編集のパッチ
 
-`動画差し替え PoC` パッチは、録画完了時（`vb0.G0`）に次のファイルがあれば録画ファイルへ上書きし、長さ・解像度・音声有無を差し替え後の値で `CollectionCameraResult` を作り直す。ファイルが無いとき、読めないときは録画をそのまま使う（どちらもログに出す）。
+`投稿前編集` パッチは、録画完了時（`vb0.G0`）に録画結果を預かり、全画面の編集画面を出す。見た目は setlog の送信先選択画面に合わせている。
+
+- プレビュー左上の ✕: 確認のうえ録画を破棄し、本体のキャンセル処理（`vb0.F0`）で撮影画面を閉じる
+- プレビュー右上のピンクの ↑: 編集内容を焼き込んで書き出し、本体の送信先選択画面へ進む
+- 下の「そのまま投稿」: 編集せずに本体の送信先選択画面へ進む
+- フィルター: なし／モノクロ／セピア／ウォーム／クール／フェード。最後に使ったフィルターを次回の初期値にする
+- 調整: 明るさ・コントラスト・彩度
+- テキスト: 複数追加でき、色・サイズを変えられる。プレビュー上でドラッグして位置を決める
+
+書き出しは同梱の Media3 Transformer で HEVC にエンコードする。解像度・長さ・音声（AAC）は録画を引き継ぐ。HEVC 以外にフォールバックした場合は失敗として扱い、元の動画で進むかを選ばせる。編集画面を開けない場合（Activity が無い等）は何もせず本体の処理を続ける。
+
+### 同梱する media3
+
+setlog 本体の media3 は R8 で難読化されているため流用できない。一方で `ExoPlayer` など一部は元の名前で残っているため、そのまま同梱するとクラス名が衝突する。そこで `extensions/cutlog/build.gradle.kts` で media3 1.11.1 と依存（Guava・Kotlin・kotlinx 等）を `dev.utaa.cutlog.shaded.*` へ付け替えてから extension に入れる。AAR の keep 規則も付け替えて R8 に渡す。
+
+media3-effect はシェーダーを `R.raw` から読むが、extension は resource を持ち込めない。パッチがシェーダーを `res/raw/cutlog_media3_*.glsl` として APK に追加し、extension 側の `R` クラスが実行時に ID を引く。シェーダーは `patches/src/main/resources/cutlog/media3-shaders/`（media3 1.11.1 の AAR から取得。Apache License 2.0）。media3 を更新するときは、シェーダーと `R` のフィールドも合わせて更新する。
+
+### 検証用の差し替え動画
+
+次のファイルを置くと、録画をこの動画に置き換えてから編集画面を開く（Phase 1 の差し替え PoC を引き継いだもの）。置いている間はすべての撮影が置き換わるので、検証が済んだら必ず消す。
 
 `/sdcard/Android/data/com.newchat.setlog/files/cutlog/replacement.mp4`
 
-ファイルを置いている間は、すべての撮影がこの動画に置き換わる。検証が済んだら必ず消す。
-
 ```sh
 adb push scratch/replacement.mp4 /sdcard/Android/data/com.newchat.setlog/files/cutlog/replacement.mp4
-adb logcat -s cutlog   # 成功時は "Replaced capture: ..."
+adb logcat -s cutlog   # "Replaced capture: ..." / "Export completed: ..." / "Delivering edited capture: ..."
 adb shell rm /sdcard/Android/data/com.newchat.setlog/files/cutlog/replacement.mp4
 ```
 
 検証用の動画は OutputProfile に合わせて ffmpeg で作る（`scratch/replacement.mp4`、HEVC Main 1280x720 30fps、AAC-LC 48kHz モノラル、約 2.07 秒）。
+
+### 実機で確認したこと（Android 13、23043RP34G）
+
+- 撮影直後に編集画面が開き、プレビューがループ再生される
+- フィルター（セピア・ウォームの LUT を含む）がプレビューに反映される
+- テキストの追加・色変更・ドラッグがプレビューと書き出し結果で一致する
+- ↑ で約 0.35 秒で書き出し（`OMX.qcom.video.encoder.hevc`、1280x720、HEVC）、編集済み動画が本体の送信先選択画面に表示される
+- 「そのまま投稿」で元の動画が、✕ →「破棄する」で撮影画面が閉じてログ画面に戻る
+- 未確認: 編集済み動画の投稿と別端末での再生、縦向き撮影、カメラ映像（差し替え動画以外）の編集、プロセス終了時の挙動
 
 ## 注意
 

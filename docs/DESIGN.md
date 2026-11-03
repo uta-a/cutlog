@@ -44,51 +44,57 @@ cutlog は、setlog（Android 版）を Morphe でパッチし、「撮った動
 
 ```
 cutlog/
-├─ patches/src/main/kotlin/.../cutlog/
-│   ├─ shared/Fingerprints.kt        # 録画完了・投稿・カメラ画面の fingerprint
-│   ├─ editor/VideoEditorPatch.kt    # 録画結果の横取り（F1〜F3）
-│   ├─ picker/GalleryPostPatch.kt    # カメラ画面に「ファイルから」ボタン（F4）
-│   ├─ manifest/RegisterActivityPatch.kt  # 編集 Activity をマニフェストに追加
-│   └─ settings/SettingsPatch.kt     # 設定画面に項目追加（F6）
-└─ extensions/cutlog/src/main/java/.../
-    ├─ hook/CaptureInterceptor.java  # パッチから呼ばれる入口
-    ├─ editor/EditorActivity.java    # プレビュー＋編集 UI
-    ├─ editor/EditSpec.java          # フィルター・テキストの設定値
-    ├─ render/Renderer.java          # Media3 Transformer で書き出し
-    ├─ render/OutputProfile.java     # 公式撮影分に合わせる出力仕様
-    └─ pref/Prefs.java               # ON/OFF 設定
+├─ patches/src/main/kotlin/.../cutlog/patches/
+│   ├─ CutlogPatch.kt                  # PairIP のローカルインストール元判定（Phase 1）
+│   └─ capture/CaptureEditorPatch.kt   # 録画結果の横取り・本体への返却・シェーダー resource の追加（F1〜F3）
+├─ patches/src/main/resources/cutlog/media3-shaders/  # media3-effect のシェーダー
+└─ extensions/cutlog/src/main/java/dev/utaa/cutlog/
+    ├─ extension/hook/CaptureInterceptor.java  # パッチから呼ばれる入口、Activity の保持
+    ├─ extension/hook/CaptureHost.java         # パッチが録画画面に実装させる interface
+    ├─ extension/hook/CaptureSession.java      # 預かった録画結果 1 件（完了・キャンセルを一度だけ返す）
+    ├─ extension/editor/EditorDialog.java      # プレビュー＋編集 UI（全画面 Dialog）
+    ├─ extension/editor/EditSpec.java          # フィルター・調整・テキストの設定値
+    ├─ extension/editor/TextPainter.java       # テキスト描画（プレビューと書き出しで共通）
+    ├─ extension/render/EffectsFactory.java    # EditSpec → Media3 Effect
+    ├─ extension/render/Renderer.java          # Media3 Transformer で書き出し
+    ├─ extension/render/OutputProfile.java     # 公式撮影分に合わせる出力仕様
+    ├─ extension/pref/Prefs.java               # 最後に使ったフィルター
+    └─ shaded/androidx/media3/effect/R.java    # 付け替えた media3 が読む R.raw（実行時に ID を引く）
 ```
 
 主なインターフェース:
 
-- `CaptureInterceptor.onCaptured(ctx, result, resume)`：パッチが `vb0.G0(oc0)` の入口で呼ぶ。元の続きの処理を `resume` として受け取り、編集後の `oc0`（差し替えた mp4 を指す）で呼び直す
-- `Renderer.render(...)`：Media3 Transformer は Looper スレッドの非同期 API なので、戻り値で File を返さず、完了コールバックで編集済みファイルを渡す形にする
-- 編集画面は独立 Activity。マニフェスト登録が要るため Morphe のリソースパッチで追加する。登録が重ければ、既存 Activity 上の全画面 Dialog に切り替える
-- 編集 Activity 起動でカメラ画面が onPause/解放される挙動と、`resume` クロージャがプロセス kill で失われる点は Phase 1 で検証する
-- 依存ライブラリ（Media3 Transformer / Effect / ExoPlayer）は、本体が既に media3 を同梱しているため同梱要否を Phase 1 で判断する。同梱する場合は shadow でリネーム
+- `CaptureInterceptor.onCaptured(host, result, uri)`：パッチが `vb0.G0(oc0)` の入口（二重呼び出し防止の判定の後）で呼ぶ。true を返したら本体はそこで止まり、編集画面の操作後に `CaptureHost.cutlogDeliver(result, replacement)` で `G0` を呼び直す。キャンセルは `CaptureHost.cutlogCancel()` が本体の `F0` を呼ぶ
+- パッチは `oc0` に `cutlogWithReplacement(oc0, CaptureReplacement)` を足し、録画ファイルの Uri・撮影時刻・UTC オフセット・国コード・レンズ向きは保ったまま、長さ・解像度・音声有無だけを書き出し結果の値に差し替える
+- 編集画面を重ねる Activity は `MainActivity.onResume` のフックで受け取る（setlog は単一 Activity）
+- `Renderer.start(...)`：Media3 Transformer は Looper スレッドの非同期 API なので、完了コールバックで編集済みファイルを渡す。書き出し先は録画と同じディレクトリで、完了後に rename で録画ファイルを置き換える
+- 編集画面は全画面 Dialog。マニフェスト登録が不要で、カメラ画面の状態を保ったまま本体へ戻せる。プロセスが終了すると預かった録画結果は失われる（本体の撮影からやり直しになる）
+- media3 1.11.1 は本体のものを流用できないため、依存ごと `dev.utaa.cutlog.shaded.*` へ付け替えて同梱する（README 参照）
 
 ## 編集エンジン
 
-書き出しは AndroidX Media3 Transformer、プレビューは ExoPlayer に同じ Effect を渡して作る。編集内容は `EditSpec` だけで表し、プレビューと書き出しで共通にする。
+書き出しは AndroidX Media3 Transformer、プレビューは ExoPlayer に同じ色の Effect を渡して作る。テキストはプレビューでは View で重ね、書き出しでは同じ描画コード（`TextPainter`）で作った全面の Bitmap を `BitmapOverlay` で焼き込む。編集内容は `EditSpec` だけで表し、プレビューと書き出しで共通にする。
 
 | 機能 | 実装 |
 | --- | --- |
 | モノクロ / セピア | `RgbFilter.createGrayscaleFilter()`、`RgbMatrix` で色行列 |
 | 明るさ・コントラスト・彩度 | `Brightness`、`Contrast`、`HslAdjustment` |
-| LUT プリセット | `SingleColorLut`（.cube を assets に同梱） |
-| テキスト | `OverlayEffect` ＋ `TextOverlay`（SpannableString で色・サイズ、`OverlaySettings` で位置） |
+| LUT プリセット | `SingleColorLut.createFromCube()`。ウォーム／クール／フェードの 17^3 キューブをコードで生成（assets は持ち込めないため） |
+| テキスト | `OverlayEffect` ＋ `BitmapOverlay`（`TextPainter` で描いた動画と同サイズの Bitmap） |
 | スタンプ・画像 | `BitmapOverlay`（将来拡張） |
 | トリム | `MediaItem.ClippingConfiguration` |
 | リサイズ・クロップ | `Presentation.createForWidthAndHeight()`、縦横比は公式撮影分に合わせる |
 | 音声 | 公式は音声あり（AAC-LC 48kHz モノラル）のため無音化せず、形式を揃える |
 
-注: 本体の media3 は R8 で切り詰められているため、上記 API（`RgbFilter`、`OverlayEffect` 等）が本体側に残っているかは Phase 1 で確認する。残っていなければ extension に同梱する。
+注: 本体の media3 は R8 で難読化されていて上記 API を名前で呼べないため、media3 1.11.1 を付け替えて extension に同梱した。
 
 編集 UI:
 
-- 上半分にループ再生プレビュー、下半分にタブ（フィルター / テキスト / トリム）
-- テキストはプレビュー上でドラッグして位置決め。位置は -1〜1 の正規化座標で `EditSpec` に持つ
-- 「投稿」で書き出し → 完了したら `resume(編集後の oc0)`。失敗時は元ファイルで続行するか選ばせる
+- 見た目は setlog の送信先選択画面に合わせる（黒背景、`#1C1C1E` の面、アクセントはピンク `#FE75F5`）
+- 上に角丸のループ再生プレビュー。左上の ✕ がキャンセル、右上のピンクの ↑ が「編集して投稿」
+- 下にタブ（フィルター / 調整 / テキスト）と「そのまま投稿」の行。トリムは Phase 3
+- テキストはプレビュー上でドラッグして位置決め。位置は動画に対する 0〜1 の比率（左上が原点）、サイズは短辺に対する比率で `EditSpec` に持つ
+- ↑ で書き出し → 完了したら `CaptureHost.cutlogDeliver` で本体へ返す。失敗時は元ファイルで続行するか選ばせる
 - 最後に使ったフィルターを Prefs に保存し、次回の初期値にする
 
 出力仕様（`OutputProfile`）は Phase 0 で `ffprobe` した公式撮影分の値を既定値にし、入力に関わらずそこへ揃える。
@@ -135,7 +141,7 @@ Phase 1 の「無編集で差し替えた動画が普通に投稿できる」が
 2. Phase 1 差し替え PoC:
    - (a) インストール元チェックの限定パッチを適用した再署名 APK が起動・ログインできるか（PairIP 関門、Go/No-Go その1。Android 13 実機でログイン画面 → 安全設定画面への到達、40秒後も生存を確認。暗号鍵の移行・作成、過去動画へのアクセスは未確認）
    - (b) `vb0.G0` 直前で固定の動画ファイルに差し替え、サブアカウントで投稿が通るか（Go/No-Go その2: Go。差し替えた動画の dev グループへの投稿・別端末での再生はユーザー確認済み。途中の「ロックされた投稿です」は受信側の鍵再生成で解消したとの報告あり。送信側の一時診断では相手用鍵の付与・鍵 ID の一致・投稿用暗号鍵の一致を確認済み）
-3. Phase 2 編集画面: EditorActivity ＋ Renderer、フィルターとテキスト（F1〜F3）
+3. Phase 2 編集画面: EditorDialog ＋ Renderer、フィルターとテキスト（F1〜F3）。実装済み。実機で編集・書き出し・本体への受け渡しを確認。編集済み動画の投稿は未確認
 4. Phase 3 任意動画: 「ファイルから」ボタンとトリム（F4）
 5. Phase 4 仕上げ: 設定画面（F6）、F5 の可否判断、バンドルとして公開するか決める
 
@@ -147,5 +153,5 @@ Phase 1 の「無編集で差し替えた動画が普通に投稿できる」が
 - [x] 投稿時刻はサーバー決定かクライアント送信か → クライアント送信（body の timestamp）
 - [x] 署名チェック・ Play Integrity の有無 → 署名検証・Play Integrity は無し。PairIP licensecheck（起動時 Play ライセンス確認）のみ
 - [x] linimal と同じリポジトリか別か → 別リポジトリ（cutlog 単独）
-- [ ] 本体同梱の media3 を再利用できるか（R8 で必要 API が残っているか）
-- [ ] 編集 Activity 方式か Dialog 方式か（resume 検証次第）
+- [x] 本体同梱の media3 を再利用できるか → できない（難読化済みで、一部は元の名前で残るため衝突もする）。media3 1.11.1 を `dev.utaa.cutlog.shaded.*` へ付け替えて同梱し、シェーダーは resource パッチで追加する
+- [x] 編集 Activity 方式か Dialog 方式か → 全画面 Dialog。マニフェスト登録が不要で、カメラ画面の状態を保ったまま本体の処理へ戻せる
