@@ -17,6 +17,7 @@ import android.view.View;
 import android.view.ViewGroup;
 import android.view.ViewOutlineProvider;
 import android.view.Window;
+import android.view.WindowInsets;
 import android.view.WindowManager;
 import android.view.inputmethod.InputMethodManager;
 import android.widget.FrameLayout;
@@ -94,13 +95,18 @@ public final class EditorDialog extends Dialog implements EditorHost {
         this.clipDurationMs = Math.min(OutputProfile.clipDurationMs(RecordDuration.selectedMs()), source.durationMs);
         spec.filter = Prefs.lastFilter(activity);
         setCancelable(false);
-        setContentView(buildContent(activity));
+        View content = buildContent(activity);
+        setContentView(content);
         Window window = getWindow();
         if (window != null) {
-            window.setSoftInputMode(WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE);
+            // 全画面のテーマと edge-to-edge（本体は targetSdk 36）では adjustResize が効かないため、
+            // キーボードとシステムバーの高さを insets で受け取り、自分で余白にする。
+            window.setDecorFitsSystemWindows(false);
+            window.setSoftInputMode(WindowManager.LayoutParams.SOFT_INPUT_ADJUST_NOTHING);
             window.setStatusBarColor(Ui.BACKGROUND);
             window.setNavigationBarColor(Ui.BACKGROUND);
         }
+        fitInsets(content);
         setOnKeyListener((dialog, keyCode, event) -> {
             if (keyCode == KeyEvent.KEYCODE_BACK && event.getAction() == KeyEvent.ACTION_UP) {
                 confirmCancel();
@@ -174,13 +180,38 @@ public final class EditorDialog extends Dialog implements EditorHost {
 
     @Override
     public void dismiss() {
-        // 編集画面のキーボードが本体の画面に残らないよう、閉じる前に隠す。
-        View focus = getCurrentFocus();
-        if (focus != null) {
+        // 編集画面のキーボードが本体の画面に残らないよう、閉じる前に隠す。入力欄からフォーカスが
+        // 外れていてもキーボードは出たままのことがあるため、画面全体の token で閉じる。
+        Window window = getWindow();
+        if (window != null) {
+            View decor = window.getDecorView();
+            View focus = getCurrentFocus();
+            if (focus != null) {
+                focus.clearFocus();
+            }
             InputMethodManager imm = getContext().getSystemService(InputMethodManager.class);
-            imm.hideSoftInputFromWindow(focus.getWindowToken(), 0);
+            imm.hideSoftInputFromWindow(decor.getWindowToken(), 0);
         }
         super.dismiss();
+    }
+
+    /**
+     * システムバーとキーボードの高さを余白にする。キーボードが出ている間は、入力欄をキーボードの
+     * すぐ上に出し、プレビューの場所を残すためにツールバーを隠す。
+     */
+    private void fitInsets(View root) {
+        int gutter = Ui.dp(getContext(), 12);
+        int bottomGutter = Ui.dp(getContext(), 4);
+        root.setOnApplyWindowInsetsListener((view, insets) -> {
+            android.graphics.Insets bars = insets.getInsets(
+                    WindowInsets.Type.systemBars() | WindowInsets.Type.displayCutout());
+            android.graphics.Insets ime = insets.getInsets(WindowInsets.Type.ime());
+            boolean keyboard = insets.isVisible(WindowInsets.Type.ime()) && ime.bottom > bars.bottom;
+            view.setPadding(gutter + bars.left, gutter + bars.top, gutter + bars.right,
+                    bottomGutter + Math.max(bars.bottom, ime.bottom));
+            toolBar.setVisibility(keyboard ? View.GONE : View.VISIBLE);
+            return WindowInsets.CONSUMED;
+        });
     }
 
     /** 書き出し後の動画の長さ。タイムラインの長さもこれ。 */

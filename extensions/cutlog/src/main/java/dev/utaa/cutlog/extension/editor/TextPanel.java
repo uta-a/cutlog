@@ -11,6 +11,7 @@ import android.view.Gravity;
 import android.view.View;
 import android.view.ViewGroup;
 import android.view.inputmethod.EditorInfo;
+import android.view.inputmethod.InputMethodManager;
 import android.widget.EditText;
 import android.widget.HorizontalScrollView;
 import android.widget.LinearLayout;
@@ -333,6 +334,9 @@ final class TextPanel extends ToolPanel {
         }
         host.spec().layers.add(added);
         input.setText("");
+        // 追加したらキーボードを閉じ、プレビューで位置や見た目を確かめられるようにする。
+        input.clearFocus();
+        context.getSystemService(InputMethodManager.class).hideSoftInputFromWindow(input.getWindowToken(), 0);
         host.layersChanged();
         host.selectLayer(added);
     }
