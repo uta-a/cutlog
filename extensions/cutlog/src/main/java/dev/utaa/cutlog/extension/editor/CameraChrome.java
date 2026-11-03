@@ -61,8 +61,30 @@ final class CameraChrome {
             centerY = flash.getTop() + flash.getTranslationY() + flash.getHeight() / 2f;
             control.setVisibility(flash.getVisibility() == View.GONE ? View.GONE : View.VISIBLE);
         }
-        control.setTranslationX(shutterX + unit * slot - control.getWidth() / 2f);
+        View parent = (View) control.getParent();
+        // 親は画面の幅いっぱいだが、カメラ映像の枠は内側に約 12dp 入っている。枠より内側に収める。
+        float centerX = centerX(shutterX, unit, slot, control.getWidth(), parent.getWidth(), Ui.dp(control.getContext(), 16));
+        control.setTranslationX(centerX - control.getWidth() / 2f);
         control.setTranslationY(centerY - control.getHeight() / 2f);
+    }
+
+    /**
+     * ボタンの中心の横位置。slot の位置が端（親の端から margin 内側）からはみ出す幅の端末では、端と隣の
+     * slot のボタン（同じ幅とみなす）の間の真ん中に置く。それでも入らなければ端に寄せる。
+     */
+    static float centerX(float shutterX, float unit, float slot, float width, float parentWidth, float margin) {
+        float half = width / 2f;
+        float center = shutterX + unit * slot;
+        float start = margin;
+        float end = parentWidth - margin;
+        if (center - half < start) {
+            float neighborLeft = shutterX + unit * (slot + 1) - half;
+            center = Math.max(start + half, (start + neighborLeft) / 2f);
+        } else if (center + half > end) {
+            float neighborRight = shutterX + unit * (slot - 1) + half;
+            center = Math.min(end - half, (neighborRight + end) / 2f);
+        }
+        return center;
     }
 
     private static View find(View view) {
