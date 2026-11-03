@@ -33,11 +33,12 @@ import android.widget.SeekBar;
 import android.widget.TextView;
 import dev.utaa.cutlog.extension.hook.CaptureInterceptor;
 import dev.utaa.cutlog.extension.hook.CaptureReplacement;
-import dev.utaa.cutlog.extension.hook.CaptureSession;
-import dev.utaa.cutlog.extension.hook.VideoFiles;
+import dev.utaa.cutlog.extension.hook.EditSession;
 import dev.utaa.cutlog.extension.pref.Prefs;
 import dev.utaa.cutlog.extension.render.EffectsFactory;
+import dev.utaa.cutlog.extension.render.OutputProfile;
 import dev.utaa.cutlog.extension.render.Renderer;
+import dev.utaa.cutlog.shaded.androidx.media3.common.Effect;
 import dev.utaa.cutlog.shaded.androidx.media3.common.MediaItem;
 import dev.utaa.cutlog.shaded.androidx.media3.common.Player;
 import dev.utaa.cutlog.shaded.androidx.media3.exoplayer.ExoPlayer;
@@ -51,7 +52,7 @@ import java.util.List;
  *
  * <p>見た目は setlog の送信先選択画面に揃える。プレビュー左上の ✕ がキャンセル、右上のピンクの ↑ が
  * 「編集して投稿」、下の行が「そのまま投稿」。カメラ画面の Activity の上に重ねるだけなので、
- * 閉じれば本体の撮影画面の状態がそのまま残る。結果は {@link CaptureSession} を通して一度だけ本体へ返す。
+ * 閉じれば本体の撮影画面の状態がそのまま残る。結果は {@link EditSession} を通して一度だけ本体へ返す。
  */
 public final class EditorDialog extends Dialog {
     private static final int[] TEXT_COLORS = {
@@ -62,9 +63,17 @@ public final class EditorDialog extends Dialog {
     private static final float DEFAULT_TEXT_SIZE = 0.08f;
 
     private final Activity activity;
-    private final CaptureSession session;
-    private final File capturedFile;
-    private final CaptureReplacement video;
+    private final EditSession session;
+    /** 入力の動画（表示上の向きの幅・高さ）。 */
+    private final CaptureReplacement source;
+    /** 取り込んだ動画を公式撮影分の仕様へ揃える（トリムあり、そのまま投稿なし）。 */
+    private final boolean normalize;
+    /** 書き出しの幅・高さ。プレビューの縦横比とテキストの描画もこれに合わせる。 */
+    private final int outputWidth;
+    private final int outputHeight;
+    /** 取り込んだ動画から切り出す長さと、開始位置。 */
+    private final long clipDurationMs;
+    private long clipStartMs;
     private final EditSpec spec = new EditSpec();
 
     /** スライダーを続けて動かしたときに、プレビューを作り直す回数を抑える。 */
@@ -85,16 +94,16 @@ public final class EditorDialog extends Dialog {
     private final List<View> textControls = new ArrayList<>();
     private SeekBar textSizeBar;
 
-    public EditorDialog(Activity activity, CaptureSession session) {
+    public EditorDialog(Activity activity, EditSession session, CaptureReplacement source) {
         super(activity, android.R.style.Theme_Black_NoTitleBar_Fullscreen);
         this.activity = activity;
         this.session = session;
-        this.capturedFile = session.capturedFile();
-        try {
-            this.video = VideoFiles.readMetadata(capturedFile);
-        } catch (IOException e) {
-            throw new IllegalStateException("Cannot read the capture.", e);
-        }
+        this.source = source;
+        this.normalize = session.requiresNormalization();
+        int[] size = normalize ? OutputProfile.sizeFor(source.width, source.height) : new int[] {source.width, source.height};
+        this.outputWidth = size[0];
+        this.outputHeight = size[1];
+        this.clipDurationMs = Math.min(OutputProfile.CLIP_DURATION_MS, source.durationMs);
         spec.filter = Prefs.lastFilter(activity);
         setCancelable(false);
         setContentView(buildContent(activity));
@@ -183,17 +192,30 @@ public final class EditorDialog extends Dialog {
         root.addView(buildPreview(context), new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f));
 
         FrameLayout panels = new FrameLayout(context);
-        View[] tabPanels = {buildFilterPanel(context), buildAdjustPanel(context), buildTextPanel(context)};
+        List<String> labels = new ArrayList<>();
+        List<View> tabPanels = new ArrayList<>();
+        if (normalize) {
+            labels.add("トリム");
+            tabPanels.add(buildTrimPanel(context));
+        }
+        labels.add("フィルター");
+        tabPanels.add(buildFilterPanel(context));
+        labels.add("調整");
+        tabPanels.add(buildAdjustPanel(context));
+        labels.add("テキスト");
+        tabPanels.add(buildTextPanel(context));
         for (View panel : tabPanels) {
             panels.addView(panel);
         }
         LinearLayout.LayoutParams tabsParams = new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
         tabsParams.topMargin = Ui.dp(context, 16);
-        root.addView(buildTabs(context, tabPanels), tabsParams);
+        root.addView(buildTabs(context, labels.toArray(new String[0]), tabPanels.toArray(new View[0])), tabsParams);
         root.addView(panels, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, Ui.dp(context, 196)));
 
+        // 取り込んだ動画は公式撮影分の仕様へ揃える必要があるため、「そのまま投稿」は出さない。
         originalRow = buildOriginalRow(context);
+        originalRow.setVisibility(normalize ? View.GONE : View.VISIBLE);
         root.addView(originalRow);
         return root;
     }
@@ -201,7 +223,7 @@ public final class EditorDialog extends Dialog {
     /** 送信先選択画面と同じく、角丸の動画の上に ✕ と ↑ を重ねる。 */
     private View buildPreview(Context context) {
         FrameLayout area = new FrameLayout(context);
-        AspectFrame frame = new AspectFrame(context, video.width / (float) video.height);
+        AspectFrame frame = new AspectFrame(context, outputWidth / (float) outputHeight);
         float radius = Ui.dp(context, 28);
         frame.setOutlineProvider(new ViewOutlineProvider() {
             @Override
@@ -232,7 +254,7 @@ public final class EditorDialog extends Dialog {
         sendButton = Ui.text(context, "↑", 22, Color.WHITE, true);
         sendButton.setGravity(Gravity.CENTER);
         sendButton.setBackground(Ui.circle(Ui.ACCENT));
-        sendButton.setContentDescription("編集して投稿");
+        sendButton.setContentDescription(normalize ? "投稿" : "編集して投稿");
         sendButton.setOnClickListener(v -> exportAndDeliver());
         send.addView(sendButton, matchParent());
         sendProgress = new ProgressBar(context);
@@ -252,13 +274,12 @@ public final class EditorDialog extends Dialog {
     }
 
     /** 「カメラ／ログ」の切り替えと同じ形のタブ。 */
-    private View buildTabs(Context context, View[] panels) {
+    private View buildTabs(Context context, String[] labels, View[] panels) {
         LinearLayout tabs = new LinearLayout(context);
         tabs.setOrientation(LinearLayout.HORIZONTAL);
         int padding = Ui.dp(context, 4);
         tabs.setPadding(padding, padding, padding, padding);
         tabs.setBackground(Ui.pill(Ui.SURFACE));
-        String[] labels = {"フィルター", "調整", "テキスト"};
         List<TextView> buttons = new ArrayList<>();
         for (int i = 0; i < labels.length; i++) {
             int index = i;
@@ -289,6 +310,49 @@ public final class EditorDialog extends Dialog {
         row.setClickable(true);
         row.setOnClickListener(v -> deliverOriginal());
         return row;
+    }
+
+    /** 取り込んだ動画から、公式と同じ長さの区間を選ぶ。 */
+    private View buildTrimPanel(Context context) {
+        LinearLayout panel = column(context);
+        TextView range = Ui.text(context, "", 15, Ui.TEXT_PRIMARY, false);
+        panel.addView(range);
+        long maxStartMs = Math.max(0, source.durationMs - clipDurationMs);
+        SeekBar bar = seekBar(context, (int) maxStartMs, 0);
+        LinearLayout.LayoutParams barParams = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        barParams.topMargin = Ui.dp(context, 16);
+        panel.addView(bar, barParams);
+        TextView hint = Ui.text(context,
+                maxStartMs > 0
+                        ? "公式の撮影と同じ " + seconds(clipDurationMs) + " 秒を切り出します"
+                        : "動画が " + seconds(OutputProfile.CLIP_DURATION_MS) + " 秒より短いため、全体を使います",
+                12, Ui.TEXT_SECONDARY, false);
+        hint.setPadding(0, Ui.dp(context, 12), 0, 0);
+        panel.addView(hint);
+        bar.setEnabled(maxStartMs > 0);
+        Runnable updateLabel = () -> range.setText(
+                seconds(clipStartMs) + " 〜 " + seconds(clipStartMs + clipDurationMs) + " 秒（全体 " + seconds(source.durationMs) + " 秒）");
+        updateLabel.run();
+        bar.setOnSeekBarChangeListener(new SimpleSeekBarListener() {
+            @Override
+            public void onProgressChanged(SeekBar seekBar, int progress, boolean fromUser) {
+                if (fromUser) {
+                    clipStartMs = progress;
+                    updateLabel.run();
+                }
+            }
+
+            @Override
+            public void onStopTrackingTouch(SeekBar seekBar) {
+                updatePreviewEffects();
+            }
+        });
+        return panel;
+    }
+
+    private static String seconds(long ms) {
+        return String.format(java.util.Locale.ROOT, "%.1f", ms / 1000f);
     }
 
     private View buildFilterPanel(Context context) {
@@ -443,8 +507,8 @@ public final class EditorDialog extends Dialog {
             return;
         }
         showAlert(new AlertDialog.Builder(getContext(), android.R.style.Theme_DeviceDefault_Dialog_Alert)
-                .setMessage("撮影した動画を破棄して撮影画面を閉じますか？")
-                .setPositiveButton("破棄する", (dialog, which) -> {
+                .setMessage(session.cancelMessage())
+                .setPositiveButton(normalize ? "やめる" : "破棄する", (dialog, which) -> {
                     dismiss();
                     session.cancel();
                 })
@@ -452,7 +516,7 @@ public final class EditorDialog extends Dialog {
     }
 
     private void deliverOriginal() {
-        if (renderer != null) {
+        if (renderer != null || normalize) {
             return;
         }
         dismiss();
@@ -463,14 +527,18 @@ public final class EditorDialog extends Dialog {
         if (renderer != null) {
             return;
         }
-        if (spec.isEmpty()) {
+        if (spec.isEmpty() && !normalize) {
             deliverOriginal();
             return;
         }
         Prefs.setLastFilter(getContext(), spec.filter);
         setBusy(true);
-        File output = new File(capturedFile.getParentFile(), capturedFile.getName() + ".cutlog.mp4");
-        renderer = Renderer.start(getContext(), capturedFile, spec, video.width, video.height, output,
+        Renderer.Request request =
+                new Renderer.Request(session.source(), spec, outputWidth, outputHeight, session.exportFile());
+        if (normalize) {
+            request.normalized(clipStartMs, clipStartMs + clipDurationMs);
+        }
+        renderer = Renderer.start(getContext(), request,
                 new Renderer.Callback() {
                     @Override
                     public void onSuccess(File output) {
@@ -478,7 +546,7 @@ public final class EditorDialog extends Dialog {
                         CaptureReplacement replacement;
                         try {
                             // 録画ファイルの置き換えまで済ませてから閉じる。失敗したら編集画面で選ばせる。
-                            replacement = session.installEdited(output);
+                            replacement = session.install(output);
                         } catch (IOException e) {
                             output.delete();
                             setBusy(false);
@@ -486,7 +554,7 @@ public final class EditorDialog extends Dialog {
                             return;
                         }
                         dismiss();
-                        session.deliverEdited(replacement);
+                        session.deliver(replacement);
                     }
 
                     @Override
@@ -505,7 +573,11 @@ public final class EditorDialog extends Dialog {
         }
         showAlert(new AlertDialog.Builder(getContext(), android.R.style.Theme_DeviceDefault_Dialog_Alert)
                 .setMessage("編集した動画を書き出せませんでした。")
-                .setPositiveButton("元の動画で投稿", (dialog, which) -> deliverOriginal())
+                .setPositiveButton(normalize ? "閉じる" : "元の動画で投稿", (dialog, which) -> {
+                    if (!normalize) {
+                        deliverOriginal();
+                    }
+                })
                 .setNegativeButton("編集に戻る", null));
     }
 
@@ -539,10 +611,32 @@ public final class EditorDialog extends Dialog {
         player = new ExoPlayer.Builder(getContext()).build();
         player.setRepeatMode(Player.REPEAT_MODE_ONE);
         player.setVideoTextureView(previewTexture);
-        player.setVideoEffects(EffectsFactory.colorEffects(spec));
-        player.setMediaItem(MediaItem.fromUri(Uri.fromFile(capturedFile)), positionMs);
+        player.setVideoEffects(previewEffects());
+        player.setMediaItem(previewItem(), positionMs);
         player.prepare();
         player.play();
+    }
+
+    /** プレビューの Effect。取り込んだ動画は書き出しと同じく出力解像度へ切り抜いてから色を変える。 */
+    private List<Effect> previewEffects() {
+        List<Effect> effects = new ArrayList<>();
+        if (normalize) {
+            effects.addAll(EffectsFactory.normalizeEffects(outputWidth, outputHeight));
+        }
+        effects.addAll(EffectsFactory.colorEffects(spec));
+        return effects;
+    }
+
+    /** プレビューの入力。取り込んだ動画は選んだ区間だけをループ再生する。 */
+    private MediaItem previewItem() {
+        MediaItem.Builder item = new MediaItem.Builder().setUri(session.source());
+        if (normalize) {
+            item.setClippingConfiguration(new MediaItem.ClippingConfiguration.Builder()
+                    .setStartPositionMs(clipStartMs)
+                    .setEndPositionMs(clipStartMs + clipDurationMs)
+                    .build());
+        }
+        return item.build();
     }
 
     /**
@@ -559,7 +653,8 @@ public final class EditorDialog extends Dialog {
         if (player == null) {
             return;
         }
-        long positionMs = player.getCurrentPosition();
+        // 区間を変えたら区間の先頭から、色だけ変えたら同じ位置から再生する。
+        long positionMs = Math.min(player.getCurrentPosition(), clipDurationMs);
         player.release();
         startPreview(positionMs);
     }

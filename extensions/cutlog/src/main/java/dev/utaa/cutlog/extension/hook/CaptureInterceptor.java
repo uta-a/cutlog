@@ -1,11 +1,18 @@
 package dev.utaa.cutlog.extension.hook;
 
 import android.app.Activity;
+import android.content.ActivityNotFoundException;
 import android.content.Context;
+import android.content.Intent;
 import android.net.Uri;
+import android.os.Build;
 import android.os.Environment;
+import android.provider.MediaStore;
 import android.util.Log;
+import android.view.View;
+import android.widget.Toast;
 import dev.utaa.cutlog.extension.editor.EditorDialog;
+import dev.utaa.cutlog.extension.editor.ImportButton;
 import java.io.File;
 import java.io.IOException;
 import java.lang.ref.WeakReference;
@@ -23,7 +30,12 @@ public final class CaptureInterceptor {
     private static final String REPLACEMENT_PATH =
             "Android/data/com.newchat.setlog/files/cutlog/replacement.mp4";
 
+    /** 動画選択の requestCode。本体の requestCode と重ならない値にする。 */
+    private static final int PICK_VIDEO_REQUEST = 0x4354;
+
     private static WeakReference<Activity> currentActivity = new WeakReference<>(null);
+    /** 動画を選んでいる間の撮影画面。選択画面から戻ったら、ここへ結果を返す。 */
+    private static WeakReference<CaptureHost> pickingHost = new WeakReference<>(null);
     private static Context appContext;
     private static boolean delivering;
 
@@ -61,8 +73,12 @@ public final class CaptureInterceptor {
             }
             File capturedFile = new File(captured.getPath());
             CaptureReplacement replacement = applyTestReplacement(capturedFile);
-            new EditorDialog(activity, new CaptureSession(host, result, capturedFile, replacement)).show();
+            CaptureSession session = new CaptureSession(host, result, capturedFile, replacement);
+            new EditorDialog(activity, session, VideoFiles.readMetadata(capturedFile)).show();
             return true;
+        } catch (IOException e) {
+            Log.w(TAG, "Cannot read the capture; keeping the official flow.", e);
+            return false;
         } catch (RuntimeException e) {
             Log.w(TAG, "Cannot open the editor; keeping the official flow.", e);
             return false;
@@ -86,6 +102,66 @@ public final class CaptureInterceptor {
         }
     }
 
+    /** 撮影画面の View ができたときに呼ばれる。「ファイルから」ボタンを足す。 */
+    public static void onCameraViewCreated(CaptureHost host, View view) {
+        try {
+            ImportButton.attach(view, () -> startImport(host));
+        } catch (RuntimeException e) {
+            Log.w(TAG, "Cannot add the import button.", e);
+        }
+    }
+
+    private static void startImport(CaptureHost host) {
+        Activity activity = currentActivity.get();
+        if (activity == null) {
+            return;
+        }
+        Intent intent;
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            intent = new Intent(MediaStore.ACTION_PICK_IMAGES).setType("video/*");
+        } else {
+            intent = new Intent(Intent.ACTION_GET_CONTENT).setType("video/*").addCategory(Intent.CATEGORY_OPENABLE);
+        }
+        pickingHost = new WeakReference<>(host);
+        try {
+            activity.startActivityForResult(intent, PICK_VIDEO_REQUEST);
+        } catch (ActivityNotFoundException e) {
+            pickingHost = new WeakReference<>(null);
+            Toast.makeText(activity, "動画を選べるアプリがありません", Toast.LENGTH_SHORT).show();
+        }
+    }
+
+    /**
+     * MainActivity.onActivityResult から呼ばれる。
+     *
+     * @return true なら cutlog の動画選択の結果だった。本体には渡さない。
+     */
+    public static boolean onActivityResult(Activity activity, int requestCode, int resultCode, Intent data) {
+        if (requestCode != PICK_VIDEO_REQUEST) {
+            return false;
+        }
+        CaptureHost host = pickingHost.get();
+        pickingHost = new WeakReference<>(null);
+        Uri picked = data != null ? data.getData() : null;
+        if (resultCode != Activity.RESULT_OK || picked == null) {
+            return true;
+        }
+        if (host == null) {
+            Toast.makeText(activity, "撮影画面を開き直してから選んでください", Toast.LENGTH_SHORT).show();
+            return true;
+        }
+        try {
+            CaptureReplacement source = VideoFiles.readMetadata(activity, picked);
+            File cameraDir = new File(activity.getCacheDir(), "camera");
+            cameraDir.mkdirs();
+            new EditorDialog(activity, new ImportSession(host, picked, cameraDir), source).show();
+        } catch (IOException | RuntimeException e) {
+            Log.w(TAG, "Cannot open the picked video.", e);
+            Toast.makeText(activity, "この動画は読み込めませんでした", Toast.LENGTH_SHORT).show();
+        }
+        return true;
+    }
+
     /** 本体の G0 を呼び直す間だけ、自分自身のフックを素通りさせる。 */
     static void deliver(CaptureHost host, Object result, CaptureReplacement replacement) {
         delivering = true;
@@ -94,6 +170,17 @@ public final class CaptureInterceptor {
         } catch (RuntimeException e) {
             // 録画画面が既に破棄されていると、本体の FragmentManager 取得で例外になる。
             Log.w(TAG, "Cannot deliver the capture result.", e);
+        } finally {
+            delivering = false;
+        }
+    }
+
+    static void deliverImported(CaptureHost host, Uri video, CaptureReplacement replacement) {
+        delivering = true;
+        try {
+            host.cutlogDeliverImported(video, replacement);
+        } catch (RuntimeException e) {
+            Log.w(TAG, "Cannot deliver the imported video.", e);
         } finally {
             delivering = false;
         }

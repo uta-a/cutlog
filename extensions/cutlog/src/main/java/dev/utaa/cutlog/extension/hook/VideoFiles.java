@@ -1,6 +1,8 @@
 package dev.utaa.cutlog.extension.hook;
 
+import android.content.Context;
 import android.media.MediaMetadataRetriever;
+import android.net.Uri;
 import java.io.File;
 import java.io.FileInputStream;
 import java.io.FileOutputStream;
@@ -12,6 +14,7 @@ import java.io.OutputStream;
 public final class VideoFiles {
     private VideoFiles() {}
 
+    /** 書き出し・録画した mp4 のメタデータ。表示上の向きの幅・高さを返す。 */
     public static CaptureReplacement readMetadata(File file) throws IOException {
         MediaMetadataRetriever retriever = new MediaMetadataRetriever();
         try {
@@ -19,27 +22,47 @@ public final class VideoFiles {
             if (!"video/mp4".equals(retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_MIMETYPE))) {
                 throw new IOException("Not an mp4 file: " + file);
             }
-            long durationMs = Long.parseLong(
-                    retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_DURATION));
-            int width = Integer.parseInt(
-                    retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_VIDEO_WIDTH));
-            int height = Integer.parseInt(
-                    retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_VIDEO_HEIGHT));
-            String rotation = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_VIDEO_ROTATION);
-            int[] size = displaySize(width, height, rotation == null ? 0 : Integer.parseInt(rotation));
-            width = size[0];
-            height = size[1];
-            if (durationMs <= 0 || width <= 0 || height <= 0) {
-                throw new IOException("Invalid video metadata: " + file);
-            }
-            boolean hasAudio = "yes".equals(
-                    retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_HAS_AUDIO));
-            return new CaptureReplacement(durationMs, width, height, hasAudio);
+            return read(retriever, file.toString());
         } catch (RuntimeException e) {
             throw new IOException("Cannot read video metadata: " + file, e);
         } finally {
             retriever.release();
         }
+    }
+
+    /** 端末内から選んだ動画のメタデータ。コンテナは問わない。 */
+    public static CaptureReplacement readMetadata(Context context, Uri uri) throws IOException {
+        MediaMetadataRetriever retriever = new MediaMetadataRetriever();
+        try {
+            retriever.setDataSource(context, uri);
+            if (!"yes".equals(retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_HAS_VIDEO))) {
+                throw new IOException("No video track: " + uri);
+            }
+            return read(retriever, uri.toString());
+        } catch (RuntimeException e) {
+            throw new IOException("Cannot read video metadata: " + uri, e);
+        } finally {
+            retriever.release();
+        }
+    }
+
+    private static CaptureReplacement read(MediaMetadataRetriever retriever, String name) throws IOException {
+        long durationMs = Long.parseLong(
+                retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_DURATION));
+        int width = Integer.parseInt(
+                retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_VIDEO_WIDTH));
+        int height = Integer.parseInt(
+                retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_VIDEO_HEIGHT));
+        String rotation = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_VIDEO_ROTATION);
+        int[] size = displaySize(width, height, rotation == null ? 0 : Integer.parseInt(rotation));
+        width = size[0];
+        height = size[1];
+        if (durationMs <= 0 || width <= 0 || height <= 0) {
+            throw new IOException("Invalid video metadata: " + name);
+        }
+        boolean hasAudio = "yes".equals(
+                retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_HAS_AUDIO));
+        return new CaptureReplacement(durationMs, width, height, hasAudio);
     }
 
     /** 回転メタデータを反映した表示上の {幅, 高さ}。本体の ac0 と同じく 90 / 270 度で入れ替える。 */

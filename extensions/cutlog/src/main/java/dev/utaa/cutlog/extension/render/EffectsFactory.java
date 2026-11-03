@@ -11,6 +11,7 @@ import dev.utaa.cutlog.shaded.androidx.media3.effect.Brightness;
 import dev.utaa.cutlog.shaded.androidx.media3.effect.Contrast;
 import dev.utaa.cutlog.shaded.androidx.media3.effect.HslAdjustment;
 import dev.utaa.cutlog.shaded.androidx.media3.effect.OverlayEffect;
+import dev.utaa.cutlog.shaded.androidx.media3.effect.Presentation;
 import dev.utaa.cutlog.shaded.androidx.media3.effect.RgbFilter;
 import dev.utaa.cutlog.shaded.androidx.media3.effect.RgbMatrix;
 import dev.utaa.cutlog.shaded.androidx.media3.effect.SingleColorLut;
@@ -36,6 +37,13 @@ public final class EffectsFactory {
     };
 
     private EffectsFactory() {}
+
+    /** 取り込んだ動画を出力解像度へ合わせる。縦横比が違う場合ははみ出した部分を切り落とす。 */
+    public static List<Effect> normalizeEffects(int width, int height) {
+        List<Effect> effects = new ArrayList<>();
+        effects.add(Presentation.createForWidthAndHeight(width, height, Presentation.LAYOUT_SCALE_TO_FIT_WITH_CROP));
+        return effects;
+    }
 
     /** 色の編集だけ。プレビューではテキストを View で重ねるため、こちらを使う。 */
     public static List<Effect> colorEffects(EditSpec spec) {

@@ -17,15 +17,15 @@ import com.android.tools.smali.dexlib2.immutable.ImmutableMethod
 import com.android.tools.smali.dexlib2.immutable.ImmutableMethodParameter
 import dev.utaa.cutlog.patches.shared.Constants
 
-private const val HOOK_PACKAGE = "Ldev/utaa/cutlog/extension/hook"
-private const val INTERCEPTOR = "$HOOK_PACKAGE/CaptureInterceptor;"
-private const val HOST = "$HOOK_PACKAGE/CaptureHost;"
-private const val REPLACEMENT = "$HOOK_PACKAGE/CaptureReplacement;"
+internal const val HOOK_PACKAGE = "Ldev/utaa/cutlog/extension/hook"
+internal const val INTERCEPTOR = "$HOOK_PACKAGE/CaptureInterceptor;"
+internal const val HOST = "$HOOK_PACKAGE/CaptureHost;"
+internal const val REPLACEMENT = "$HOOK_PACKAGE/CaptureReplacement;"
 private const val WITH_REPLACEMENT = "cutlogWithReplacement"
-private const val MAIN_ACTIVITY = "Lcom/newchat/setlog/MainActivity;"
+internal const val MAIN_ACTIVITY = "Lcom/newchat/setlog/MainActivity;"
 
 /** CollectionCameraResult のコンストラクタ引数。難読化されない JDK / Android の型だけで照合する。 */
-private val RESULT_CONSTRUCTOR_PARAMETERS = listOf(
+internal val RESULT_CONSTRUCTOR_PARAMETERS = listOf(
     "Landroid/net/Uri;",
     "Ljava/lang/String;",
     "J",
@@ -38,7 +38,7 @@ private val RESULT_CONSTRUCTOR_PARAMETERS = listOf(
     "Ljava/lang/String;",
 )
 
-private val IPUT_OPCODES = setOf(
+internal val IPUT_OPCODES = setOf(
     Opcode.IPUT,
     Opcode.IPUT_WIDE,
     Opcode.IPUT_OBJECT,
@@ -68,7 +68,7 @@ private val MEDIA3_SHADERS = listOf(
     "vertex_shader_transformation_es3",
 )
 
-private val captureResultToStringFingerprint = Fingerprint(
+internal val captureResultToStringFingerprint = Fingerprint(
     name = "toString",
     returnType = "Ljava/lang/String;",
     parameters = emptyList(),
@@ -108,19 +108,12 @@ val captureEditorPatch = bytecodePatch(
     extendWith("extensions/cutlog.mpe")
 
     execute {
-        val resultClass = captureResultToStringFingerprint.match().classDef
+        val targets = captureTargets()
+        val resultClass = targets.resultClass
         val resultType = resultClass.type
         resultClass.addMethod(withReplacementMethod(resultClass))
+        val deliverResult = targets.deliverResult
 
-        val deliverResult = singleMatch(
-            "capture result delivery",
-            Fingerprint(
-                accessFlags = listOf(AccessFlags.PUBLIC, AccessFlags.FINAL),
-                returnType = "V",
-                parameters = listOf(resultType),
-                strings = listOf("cancelled", "result", "requestKey"),
-            ),
-        )
         val cancel = singleMatch(
             "capture cancel",
             Fingerprint(
@@ -203,9 +196,26 @@ val captureEditorPatch = bytecodePatch(
     }
 }
 
-private class SingleMatch(val method: MutableMethod, val classDef: MutableClass, val definingClass: String, val name: String)
+/** 録画結果のクラスと、それを本体へ返す録画画面のメソッド。 */
+internal class CaptureTargets(val resultClass: MutableClass, val deliverResult: SingleMatch)
 
-private fun app.morphe.patcher.patch.BytecodePatchContext.singleMatch(label: String, fingerprint: Fingerprint): SingleMatch {
+internal fun app.morphe.patcher.patch.BytecodePatchContext.captureTargets(): CaptureTargets {
+    val resultClass = captureResultToStringFingerprint.match().classDef
+    val deliverResult = singleMatch(
+        "capture result delivery",
+        Fingerprint(
+            accessFlags = listOf(AccessFlags.PUBLIC, AccessFlags.FINAL),
+            returnType = "V",
+            parameters = listOf(resultClass.type),
+            strings = listOf("cancelled", "result", "requestKey"),
+        ),
+    )
+    return CaptureTargets(resultClass, deliverResult)
+}
+
+internal class SingleMatch(val method: MutableMethod, val classDef: MutableClass, val definingClass: String, val name: String)
+
+internal fun app.morphe.patcher.patch.BytecodePatchContext.singleMatch(label: String, fingerprint: Fingerprint): SingleMatch {
     val matches = fingerprint.matchAllOrNull().orEmpty()
     if (matches.size != 1) throw PatchException("Expected one $label, found ${matches.size}.")
     val match = matches.single()
@@ -213,7 +223,7 @@ private fun app.morphe.patcher.patch.BytecodePatchContext.singleMatch(label: Str
 }
 
 /** コンストラクタは引数順に代入するので、代入順がそのまま引数と field の対応になる。 */
-private fun resultFields(resultClass: MutableClass): List<FieldReference> {
+internal fun resultFields(resultClass: MutableClass): List<FieldReference> {
     val constructor = resultClass.methods.singleOrNull { it.name == "<init>" }
         ?: throw PatchException("Expected one CollectionCameraResult constructor.")
     if (constructor.parameterTypes.map { it.toString() } != RESULT_CONSTRUCTOR_PARAMETERS) {
@@ -228,7 +238,7 @@ private fun resultFields(resultClass: MutableClass): List<FieldReference> {
     return fields
 }
 
-private fun fieldRef(owner: String, field: FieldReference) = "$owner->${field.name}:${field.type}"
+internal fun fieldRef(owner: String, field: FieldReference) = "$owner->${field.name}:${field.type}"
 
 /**
  * `static Result cutlogWithReplacement(Result, CaptureReplacement)`。
@@ -270,7 +280,7 @@ private fun withReplacementMethod(resultClass: MutableClass): MutableMethod {
     )
 }
 
-private fun staticMethod(
+internal fun staticMethod(
     owner: String,
     name: String,
     parameters: List<String>,
@@ -279,10 +289,10 @@ private fun staticMethod(
     smali: String,
 ) = newMethod(owner, name, parameters, returnType, AccessFlags.PUBLIC.value or AccessFlags.STATIC.value, registerCount, smali)
 
-private fun virtualMethod(owner: String, name: String, parameters: List<String>, registerCount: Int, smali: String) =
+internal fun virtualMethod(owner: String, name: String, parameters: List<String>, registerCount: Int, smali: String) =
     newMethod(owner, name, parameters, "V", AccessFlags.PUBLIC.value, registerCount, smali)
 
-private fun newMethod(
+internal fun newMethod(
     owner: String,
     name: String,
     parameters: List<String>,
@@ -308,7 +318,7 @@ private fun newMethod(
 }
 
 /** DEX writer は `directMethods` / `virtualMethods` を読むため、`methods` と両方へ登録する。 */
-private fun MutableClass.addMethod(method: MutableMethod) {
+internal fun MutableClass.addMethod(method: MutableMethod) {
     methods.add(method)
     if (AccessFlags.STATIC.isSet(method.accessFlags)) directMethods.add(method) else virtualMethods.add(method)
 }
