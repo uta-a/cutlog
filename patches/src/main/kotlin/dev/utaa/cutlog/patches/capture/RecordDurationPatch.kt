@@ -94,6 +94,14 @@ val recordDurationPatch = bytecodePatch(
         var fallbacks = 0
         for (backend in backends) {
             val mutableClass = mutableClassDefBy(backend)
+            // 録画開始を extension に知らせる（録画中は cutlog のボタンを使えなくするため）。
+            val start = mutableClass.methods.single { method ->
+                method.implementation != null && method.returnType == "V" &&
+                    method.parameterTypes.map { it.toString() }.let { p ->
+                        p.size == 5 && p[0] == "Ljava/io/File;" && p[1] == "Z" && p[3] == "J"
+                    }
+            }
+            start.addInstructions(0, "invoke-static {}, $RECORD_DURATION->onRecordingStarted()V")
             for (method in mutableClass.methods) {
                 val instructions = method.implementation?.instructions?.toList() ?: continue
                 val targets = instructions.withIndex().filter { (i, insn) ->

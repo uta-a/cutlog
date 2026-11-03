@@ -35,6 +35,9 @@ public final class DurationButton extends TextView {
     }
 
     private void next() {
+        if (dev.utaa.cutlog.extension.record.RecordDuration.isRecording()) {
+            return;
+        }
         int current = Prefs.recordSeconds(getContext());
         int[] choices = Prefs.RECORD_SECONDS_CHOICES;
         int next = choices[0];

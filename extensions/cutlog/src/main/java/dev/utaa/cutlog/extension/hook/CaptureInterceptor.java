@@ -36,6 +36,9 @@ public final class CaptureInterceptor {
     private static WeakReference<Activity> currentActivity = new WeakReference<>(null);
     /** 動画を選んでいる間の撮影画面。選択画面から戻ったら、ここへ結果を返す。 */
     private static WeakReference<CaptureHost> pickingHost = new WeakReference<>(null);
+    /** 動画を選び始めたときの Activity。戻ってきた Activity が違えば、撮影画面は作り直されている。 */
+    private static WeakReference<Activity> pickingActivity = new WeakReference<>(null);
+    private static boolean cleanedStaleFiles;
     private static Context appContext;
     private static boolean delivering;
 
@@ -45,6 +48,11 @@ public final class CaptureInterceptor {
     public static void onActivityResumed(Activity activity) {
         currentActivity = new WeakReference<>(activity);
         appContext = activity.getApplicationContext();
+        if (!cleanedStaleFiles) {
+            // 前回のプロセスが書き出し途中で終わった場合の一時ファイルを、最初の 1 回だけ消す。
+            cleanedStaleFiles = true;
+            VideoFiles.deleteStaleTemporaries(new File(activity.getCacheDir(), "camera"));
+        }
     }
 
     public static Context appContextOrNull() {
@@ -62,6 +70,7 @@ public final class CaptureInterceptor {
      * @return true なら cutlog が結果を預かった。本体はここで処理を止める。
      */
     public static boolean onCaptured(CaptureHost host, Object result, Uri capturedUri) {
+        dev.utaa.cutlog.extension.record.RecordDuration.onRecordingFinished();
         if (delivering) {
             return false;
         }
@@ -122,6 +131,11 @@ public final class CaptureInterceptor {
         if (activity == null) {
             return;
         }
+        if (dev.utaa.cutlog.extension.record.RecordDuration.isRecording()) {
+            // 録画中に別の画面を開くと、本体が録画を中断して破棄する。
+            Toast.makeText(activity, "撮影が終わってから選んでください", Toast.LENGTH_SHORT).show();
+            return;
+        }
         Intent intent;
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
             intent = new Intent(MediaStore.ACTION_PICK_IMAGES).setType("video/*");
@@ -129,6 +143,7 @@ public final class CaptureInterceptor {
             intent = new Intent(Intent.ACTION_GET_CONTENT).setType("video/*").addCategory(Intent.CATEGORY_OPENABLE);
         }
         pickingHost = new WeakReference<>(host);
+        pickingActivity = new WeakReference<>(activity);
         try {
             activity.startActivityForResult(intent, PICK_VIDEO_REQUEST);
         } catch (ActivityNotFoundException e) {
@@ -147,12 +162,15 @@ public final class CaptureInterceptor {
             return false;
         }
         CaptureHost host = pickingHost.get();
+        Activity startedFrom = pickingActivity.get();
         pickingHost = new WeakReference<>(null);
+        pickingActivity = new WeakReference<>(null);
         Uri picked = data != null ? data.getData() : null;
         if (resultCode != Activity.RESULT_OK || picked == null) {
             return true;
         }
-        if (host == null) {
+        if (host == null || startedFrom != activity) {
+            // 選んでいる間に撮影画面が作り直された（またはプロセスが作り直された）。古い撮影画面には返せない。
             Toast.makeText(activity, "撮影画面を開き直してから選んでください", Toast.LENGTH_SHORT).show();
             return true;
         }

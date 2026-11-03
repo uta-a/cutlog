@@ -1,6 +1,8 @@
 package dev.utaa.cutlog.extension.hook;
 
 import static org.junit.Assert.assertArrayEquals;
+import static org.junit.Assert.assertFalse;
+import static org.junit.Assert.assertTrue;
 
 import org.junit.Test;
 
@@ -17,5 +19,13 @@ public class VideoFilesTest {
         assertArrayEquals(new int[] {720, 1280}, VideoFiles.displaySize(1280, 720, 90));
         assertArrayEquals(new int[] {720, 1280}, VideoFiles.displaySize(1280, 720, 270));
         assertArrayEquals(new int[] {720, 1280}, VideoFiles.displaySize(1280, 720, -90));
+    }
+
+    @Test
+    public void recognizesTemporaryFiles() {
+        assertTrue(VideoFiles.isTemporary("collection_camera_1.mp4.cutlog.mp4"));
+        assertTrue(VideoFiles.isTemporary("collection_camera_1.mp4.cutlog.tmp.mp4"));
+        assertTrue(VideoFiles.isTemporary("collection_camera_1.mp4.cutlog.tmp"));
+        assertFalse(VideoFiles.isTemporary("collection_camera_1.mp4"));
     }
 }

@@ -61,6 +61,7 @@ public final class CaptureSession implements EditSession {
             return;
         }
         finished = true;
+        dev.utaa.cutlog.extension.record.RecordDuration.onRecordingFinished();
         try {
             host.cutlogCancel();
         } catch (RuntimeException e) {

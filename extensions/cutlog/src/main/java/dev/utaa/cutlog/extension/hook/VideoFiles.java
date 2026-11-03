@@ -65,6 +65,24 @@ public final class VideoFiles {
         return new CaptureReplacement(durationMs, width, height, hasAudio);
     }
 
+    /** cutlog が録画ファイルの隣に作る一時ファイルか。 */
+    static boolean isTemporary(String name) {
+        return name.endsWith(".cutlog.mp4") || name.endsWith(".cutlog.tmp.mp4") || name.endsWith(".cutlog.tmp");
+    }
+
+    /** dir にある cutlog の一時ファイルを消す。書き出し中でないときにだけ呼ぶ。 */
+    static void deleteStaleTemporaries(File dir) {
+        File[] files = dir.listFiles();
+        if (files == null) {
+            return;
+        }
+        for (File file : files) {
+            if (isTemporary(file.getName())) {
+                file.delete();
+            }
+        }
+    }
+
     /** 回転メタデータを反映した表示上の {幅, 高さ}。本体の ac0 と同じく 90 / 270 度で入れ替える。 */
     static int[] displaySize(int width, int height, int rotationDegrees) {
         int rotation = ((rotationDegrees % 360) + 360) % 360;

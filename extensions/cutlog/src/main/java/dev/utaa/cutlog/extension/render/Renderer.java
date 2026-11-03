@@ -68,9 +68,11 @@ public final class Renderer {
     }
 
     private final Transformer transformer;
+    private final File output;
 
-    private Renderer(Transformer transformer) {
+    private Renderer(Transformer transformer, File output) {
         this.transformer = transformer;
+        this.output = output;
     }
 
     public static Renderer start(Context context, Request request, Callback callback) {
@@ -135,7 +137,7 @@ public final class Renderer {
         } else {
             transformer.start(item, output.getPath());
         }
-        return new Renderer(transformer);
+        return new Renderer(transformer, output);
     }
 
     /** 48kHz モノラルへ変換する。 */
@@ -155,7 +157,9 @@ public final class Renderer {
         return processors;
     }
 
+    /** 書き出しを止め、途中まで書いた出力を消す（Transformer.cancel は出力ファイルを消さない）。 */
     public void cancel() {
         transformer.cancel();
+        output.delete();
     }
 }
