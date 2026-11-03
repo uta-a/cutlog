@@ -320,6 +320,8 @@ public final class EditorDialog extends Dialog implements EditorHost {
         panels.add(new FilterPanel(context, this));
         toolBar.add("☼", "調整");
         panels.add(new AdjustPanel(context, this));
+        toolBar.add("✦", "効果");
+        panels.add(new EffectPanel(context, this));
         textTool = toolBar.add("Aa", "文字");
         panels.add(new TextPanel(context, this));
         stickerTool = toolBar.add("☺︎", "スタンプ");
@@ -623,13 +625,16 @@ public final class EditorDialog extends Dialog implements EditorHost {
 
     // ---- プレビュー ----
 
-    /** プレビューの Effect。取り込んだ動画は書き出しと同じく出力解像度へ切り抜いてから色を変える。 */
+    /**
+     * プレビューの Effect。取り込んだ動画は書き出しと同じく出力解像度へ切り抜いてから効果をかける。
+     * 文字・スタンプは View で重ねるため、ここには入れない。
+     */
     private List<Effect> previewEffects() {
         List<Effect> effects = new ArrayList<>();
         if (normalize) {
             effects.addAll(EffectsFactory.normalizeEffects(outputWidth, outputHeight));
         }
-        effects.addAll(EffectsFactory.colorEffects(spec));
+        effects.addAll(EffectsFactory.videoEffects(spec));
         return effects;
     }
 

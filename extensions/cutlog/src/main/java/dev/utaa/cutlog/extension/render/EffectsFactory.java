@@ -1,7 +1,11 @@
 package dev.utaa.cutlog.extension.render;
 
+import android.graphics.Matrix;
 import dev.utaa.cutlog.extension.editor.EditSpec;
 import dev.utaa.cutlog.extension.editor.FilterPreset;
+import dev.utaa.cutlog.extension.editor.VideoEffect;
+import dev.utaa.cutlog.shaded.androidx.media3.effect.GaussianBlur;
+import dev.utaa.cutlog.shaded.androidx.media3.effect.MatrixTransformation;
 import dev.utaa.cutlog.shaded.androidx.media3.common.Effect;
 import dev.utaa.cutlog.shaded.androidx.media3.effect.Brightness;
 import dev.utaa.cutlog.shaded.androidx.media3.effect.Contrast;
@@ -71,9 +75,52 @@ public final class EffectsFactory {
         return effects;
     }
 
-    /** 書き出し用。色の編集の後に文字・スタンプを焼き込む。 */
+    /**
+     * 動画全体にかける効果。揺れ → 色の編集 → RGB → ぼかし → グリッチ → VHS → 粒子 → ビネットの順。
+     * 文字・スタンプはこの後に重ねるため、効果はかからない。
+     */
+    public static List<Effect> videoEffects(EditSpec spec) {
+        List<Effect> effects = new ArrayList<>();
+        Float shake = spec.effects.get(VideoEffect.SHAKE);
+        if (shake != null) {
+            float intensity = shake;
+            effects.add((MatrixTransformation) presentationTimeUs -> {
+                float[] s = EffectMath.shake(presentationTimeUs, intensity);
+                Matrix matrix = new Matrix();
+                matrix.postScale(s[3], s[3]);
+                matrix.postRotate(s[2]);
+                matrix.postTranslate(s[0], s[1]);
+                return matrix;
+            });
+        }
+        effects.addAll(colorEffects(spec));
+        Float rgb = spec.effects.get(VideoEffect.RGB);
+        if (rgb != null) {
+            float intensity = rgb;
+            effects.add((RgbMatrix) (presentationTimeUs, useHdr) ->
+                    EffectMath.hueRotation(EffectMath.rainbowDegrees(presentationTimeUs), intensity));
+        }
+        Float blur = spec.effects.get(VideoEffect.BLUR);
+        if (blur != null) {
+            effects.add(new GaussianBlur(1f + blur * 11f));
+        }
+        addShader(effects, spec, VideoEffect.GLITCH, Shaders.GLITCH);
+        addShader(effects, spec, VideoEffect.VHS, Shaders.VHS);
+        addShader(effects, spec, VideoEffect.GRAIN, Shaders.GRAIN);
+        addShader(effects, spec, VideoEffect.VIGNETTE, Shaders.VIGNETTE);
+        return effects;
+    }
+
+    private static void addShader(List<Effect> effects, EditSpec spec, VideoEffect effect, String shader) {
+        Float intensity = spec.effects.get(effect);
+        if (intensity != null) {
+            effects.add(new ShaderEffect(shader, intensity));
+        }
+    }
+
+    /** 書き出し用。動画全体の効果の後に文字・スタンプを焼き込む。 */
     public static List<Effect> exportEffects(EditSpec spec, int width, int height) {
-        List<Effect> effects = colorEffects(spec);
+        List<Effect> effects = videoEffects(spec);
         if (!spec.layers.isEmpty()) {
             List<TextureOverlay> overlays = Collections.singletonList(new LayerOverlay(spec.layers, spec.durationMs, width, height));
             effects.add(new OverlayEffect(overlays));
