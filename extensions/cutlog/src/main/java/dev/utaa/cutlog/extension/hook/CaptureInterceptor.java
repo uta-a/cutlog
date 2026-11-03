@@ -105,6 +105,11 @@ public final class CaptureInterceptor {
     }
 
     private static CaptureReplacement applyTestReplacement(File captured) {
+        // アプリ自身が外部の files ディレクトリを作っておく。adb push で作られたディレクトリは shell の
+        // 持ち物になり、アプリから読めない（Android 16 / XIG07 で確認）。
+        if (appContext != null) {
+            appContext.getExternalFilesDir(null);
+        }
         File source = new File(Environment.getExternalStorageDirectory(), REPLACEMENT_PATH);
         if (!source.isFile()) {
             Log.i(TAG, "No test replacement at " + source);
