@@ -42,6 +42,21 @@ java -jar <morphe-desktop-all.jar> patch \
 
 検証済み: バンドルのビルド、実 APKM への適用・既存開発鍵での署名、`apksigner verify`、生成 APK の jadx 再解析で `return true` を確認。署名済み検証 APK は `scratch/setlog-installer-check.apk`。Android 13 の実機（23043RP34G）へ `adb install -r` で上書きし、コールド起動でログイン画面への到達、40 秒後も同一プロセスが生存することを確認。観測中に「安全設定を完了」画面へ進んだ。暗号鍵の移行・新規作成と、過去動画へのアクセス・投稿は未確認。
 
+## MicroG-RE 経由の Google ログイン
+
+`MicroG-RE Google ログイン` パッチは、通常の「Google でログイン」で取得する Google ID token の提供元だけを MicroG-RE に向ける。setlog の `auth/loginWithGoogle`、nonce、プロフィール登録、暗号鍵の準備・保存は本体の処理をそのまま使う。トークンやログイン成功を偽造するパッチではない。
+
+- [MorpheApp/MicroG-RE](https://github.com/MorpheApp/MicroG-RE)（`app.revanced.android.gms`）を導入し、MicroG-RE 側に Google アカウントを登録してから、setlog の通常の Google ログインボタンを押す。別のログインボタンや設定は追加しない
+- 公式リリースの署名証明書（SHA-256 `0b6c9515afb195fac59601696ba0a7907a0b217ccf720b43148427ccf64343e7`）を検証する。未導入・署名不一致・確認失敗時は元の Google Play services 経路を使う
+- Google ID token だけの要求では Android 本体の Credential Manager ではなく同梱の Play services provider を使い、その中でも nonce 対応の Identity Sign-In `getSignInIntent` を選ぶ。パスワード・パスキー・認証情報のクリア要求は変更しない
+- Sign-In client の生成時に接続先を固定し、action・package・dynamic lookup を揃える。時間制限付きのグローバルフラグは使わない。FCM・Maps・その他の GMS service は向け替えない
+- manifest に MicroG-RE の package visibility と、元 APK の署名 SHA-1 を伝える `app.revanced.android.gms.SPOOFED_PACKAGE_SIGNATURE` を追加する。APK 自体は開発鍵で署名されるため、公式版へのデータを保持した上書きはできない
+- 既存のログイン状態や暗号鍵は消去しない。本体のキャンセル・タイムアウト・エラー処理も残す
+
+検証用 APK: `scratch/setlog-microg.apk`。編集・取り込み・撮影秒数の既存パッチも含む。バンドルのビルド、元 APKM への全 5 パッチの適用、署名検証、実行時の Google 要求限定・署名検証失敗時の元経路維持・service の分離を確認した。
+
+Android 16 の XIG07 にインストールして起動を確認した。さらに、インストール済み APK の実クラスを Android 上で読み込み、MicroG-RE 7.3.0 の署名、Google option の認識、provider factory の選択、nonce 対応 controller の選択、connection config の MicroG package、他 service の元 package 維持、元証明書 metadata を検証した。このスモークは token を要求せず、ログイン状態・保存データ・暗号鍵を変更しない。端末はログイン済みで編集中だったため、Google アカウントでのログインやり直しと backend の応答までは確認していない。
+
 ## 投稿前編集のパッチ
 
 `投稿前編集` パッチは、録画完了時（`vb0.G0`）に録画結果を預かり、全画面の編集画面を出す。見た目は setlog の送信先選択画面に合わせている。

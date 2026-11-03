@@ -47,11 +47,13 @@ cutlog/
 ├─ patches/src/main/kotlin/.../cutlog/patches/
 │   ├─ CutlogPatch.kt                  # PairIP のローカルインストール元判定（Phase 1）
 │   ├─ capture/CaptureEditorPatch.kt   # 録画結果の横取り・本体への返却・シェーダー resource の追加（F1〜F3）
+│   ├─ auth/GoogleSignInPatch.kt       # Google ID token の取得だけを MicroG-RE へ向ける
 │   ├─ capture/RecordDurationPatch.kt  # 撮影する長さの選択（録画設定と予備タイマーの置き換え）
 │   └─ picker/ImportVideoPatch.kt      # 「ファイルから」ボタン・動画選択結果の受け取り・取り込み動画の返却（F4）
 ├─ patches/src/main/resources/cutlog/media3-shaders/  # media3-effect のシェーダー
 └─ extensions/cutlog/src/main/java/dev/utaa/cutlog/
     ├─ extension/hook/CaptureInterceptor.java  # パッチから呼ばれる入口、Activity の保持
+    ├─ extension/auth/GoogleAuth.java         # Google 要求の限定・MicroG-RE の署名検証
     ├─ extension/hook/CaptureHost.java         # パッチが録画画面に実装させる interface
     ├─ extension/hook/EditSession.java         # 編集画面が扱う 1 件分の入力と返し先
     ├─ extension/hook/CaptureSession.java      # 撮影した動画 1 件（完了・キャンセルを一度だけ返す）
@@ -78,6 +80,14 @@ cutlog/
 - `Renderer.start(...)`：Media3 Transformer は Looper スレッドの非同期 API なので、完了コールバックで編集済みファイルを渡す。書き出し先は録画と同じディレクトリで、完了後に rename で録画ファイルを置き換える
 - 編集画面は全画面 Dialog。マニフェスト登録が不要で、カメラ画面の状態を保ったまま本体へ戻せる。プロセスが終了すると預かった録画結果は失われる（本体の撮影からやり直しになる）
 - media3 1.11.1 は本体のものを流用できないため、依存ごと `dev.utaa.cutlog.shaded.*` へ付け替えて同梱する（README 参照）
+
+### Google ログインの提供元
+
+再署名によって通常の Google ログインが使えない場合に備え、`MicroG-RE Google ログイン` パッチを追加した。Google ID token だけの要求について同梱の CredentialProviderPlayServicesImpl を選び、新しい Identity Credentials API ではなく既存の nonce 対応 `getSignInIntent` controller を使う。
+
+Sign-In service の action を fingerprint で特定し、client の生成時に MicroG-RE の公式署名を検証して boolean field に接続先を固定する。MicroG-RE へ向ける client だけ action の接頭辞を変え、dynamic lookup を無効にする。この APK の R8 は GMS package getter を connection config の constructor に畳み込んでいるため、その config で MicroG-RE Sign-In action のときだけ package を変更する。action は constructor の引数 register ではなく、保存済みの field から読む。R8 が引数 register を上書きするため。
+
+manifest には package visibility と元 APK 署名の SHA-1 を申告する metadata を追加する。runtime は難読化名ではなく Google の credential type で要求を限定し、信頼できる MicroG-RE が無ければ元の経路を維持する。パスワード・パスキーや FCM・Maps 等の service は対象外。nonce、ID token の解析、setlog の `auth/loginWithGoogle`、onboarding、暗号鍵の生成と保存、キャンセル・タイムアウトは変更しない。
 
 ## 編集エンジン
 
