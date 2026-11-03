@@ -91,6 +91,9 @@ public final class CaptureInterceptor {
         delivering = true;
         try {
             host.cutlogDeliver(result, replacement);
+        } catch (RuntimeException e) {
+            // 録画画面が既に破棄されていると、本体の FragmentManager 取得で例外になる。
+            Log.w(TAG, "Cannot deliver the capture result.", e);
         } finally {
             delivering = false;
         }

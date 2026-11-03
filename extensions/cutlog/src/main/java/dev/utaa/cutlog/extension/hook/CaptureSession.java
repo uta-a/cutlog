@@ -28,12 +28,32 @@ public final class CaptureSession {
         finish(initialReplacement);
     }
 
-    /** 書き出した動画で録画ファイルを置き換えてから、投稿フローへ渡す。 */
-    public void deliverEdited(File edited) throws IOException {
+    /**
+     * 書き出した動画で録画ファイルを置き換える。まだ本体へは返さない。
+     * 失敗した場合、録画ファイルは元のまま残る（置き換えは rename 1 回で行う）。
+     */
+    public CaptureReplacement installEdited(File edited) throws IOException {
         CaptureReplacement replacement = VideoFiles.readMetadata(edited);
         VideoFiles.moveOver(edited, capturedFile);
+        return replacement;
+    }
+
+    /** {@link #installEdited} で置き換えた動画を投稿フローへ渡す。 */
+    public void deliverEdited(CaptureReplacement replacement) {
         Log.i(CaptureInterceptor.TAG, "Delivering edited capture: " + replacement);
         finish(replacement);
+    }
+
+    /**
+     * 本体の画面が破棄され、結果を返す先が無くなった。何も返さずに終える。
+     * 録画は本体の撮影画面ごと破棄されるため、ユーザーは撮影からやり直す。
+     */
+    public void abandon() {
+        if (finished) {
+            return;
+        }
+        finished = true;
+        Log.w(CaptureInterceptor.TAG, "Capture host was destroyed; abandoning the edit session.");
     }
 
     public void cancel() {
@@ -41,7 +61,11 @@ public final class CaptureSession {
             return;
         }
         finished = true;
-        host.cutlogCancel();
+        try {
+            host.cutlogCancel();
+        } catch (RuntimeException e) {
+            Log.w(CaptureInterceptor.TAG, "Cannot cancel the capture.", e);
+        }
     }
 
     private void finish(CaptureReplacement replacement) {

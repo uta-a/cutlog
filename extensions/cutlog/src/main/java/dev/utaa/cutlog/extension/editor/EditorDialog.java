@@ -2,12 +2,14 @@ package dev.utaa.cutlog.extension.editor;
 
 import android.app.Activity;
 import android.app.AlertDialog;
+import android.app.Application;
 import android.app.Dialog;
 import android.content.Context;
 import android.graphics.Color;
 import android.graphics.Outline;
 import android.graphics.drawable.GradientDrawable;
 import android.net.Uri;
+import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
 import android.text.InputType;
@@ -59,6 +61,7 @@ public final class EditorDialog extends Dialog {
     private static final float MAX_TEXT_SIZE = 0.20f;
     private static final float DEFAULT_TEXT_SIZE = 0.08f;
 
+    private final Activity activity;
     private final CaptureSession session;
     private final File capturedFile;
     private final CaptureReplacement video;
@@ -84,6 +87,7 @@ public final class EditorDialog extends Dialog {
 
     public EditorDialog(Activity activity, CaptureSession session) {
         super(activity, android.R.style.Theme_Black_NoTitleBar_Fullscreen);
+        this.activity = activity;
         this.session = session;
         this.capturedFile = session.capturedFile();
         try {
@@ -108,7 +112,47 @@ public final class EditorDialog extends Dialog {
             return false;
         });
         setOnDismissListener(dialog -> release());
+        activity.registerActivityLifecycleCallbacks(lifecycle);
     }
+
+    /** 本体の Activity に合わせてプレビューを止め、Activity が破棄されたら編集を打ち切る。 */
+    private final Application.ActivityLifecycleCallbacks lifecycle = new Application.ActivityLifecycleCallbacks() {
+        @Override
+        public void onActivityResumed(Activity a) {
+            if (player != null) {
+                player.play();
+            }
+        }
+
+        @Override
+        public void onActivityPaused(Activity a) {
+            if (player != null) {
+                player.pause();
+            }
+        }
+
+        @Override
+        public void onActivityDestroyed(Activity a) {
+            // 本体の撮影画面ごと破棄されるため、結果を返す先が無い。書き出しを止めて静かに閉じる。
+            release();
+            session.abandon();
+            if (isShowing()) {
+                dismiss();
+            }
+        }
+
+        @Override
+        public void onActivityCreated(Activity a, Bundle state) {}
+
+        @Override
+        public void onActivityStarted(Activity a) {}
+
+        @Override
+        public void onActivityStopped(Activity a) {}
+
+        @Override
+        public void onActivitySaveInstanceState(Activity a, Bundle state) {}
+    };
 
     @Override
     public void show() {
@@ -431,13 +475,18 @@ public final class EditorDialog extends Dialog {
                     @Override
                     public void onSuccess(File output) {
                         renderer = null;
+                        CaptureReplacement replacement;
                         try {
-                            dismiss();
-                            session.deliverEdited(output);
+                            // 録画ファイルの置き換えまで済ませてから閉じる。失敗したら編集画面で選ばせる。
+                            replacement = session.installEdited(output);
                         } catch (IOException e) {
                             output.delete();
+                            setBusy(false);
                             showExportError(e);
+                            return;
                         }
+                        dismiss();
+                        session.deliverEdited(replacement);
                     }
 
                     @Override
@@ -452,8 +501,6 @@ public final class EditorDialog extends Dialog {
     private void showExportError(Exception error) {
         Log.w(CaptureInterceptor.TAG, "Cannot deliver the edited video.", error);
         if (!isShowing()) {
-            // 書き出し後に失敗した場合は編集画面を閉じているため、元の動画で続ける。
-            session.deliverOriginal();
             return;
         }
         showAlert(new AlertDialog.Builder(getContext(), android.R.style.Theme_DeviceDefault_Dialog_Alert)
@@ -518,6 +565,7 @@ public final class EditorDialog extends Dialog {
     }
 
     private void release() {
+        activity.unregisterActivityLifecycleCallbacks(lifecycle);
         handler.removeCallbacks(rebuildPreview);
         if (renderer != null) {
             renderer.cancel();
