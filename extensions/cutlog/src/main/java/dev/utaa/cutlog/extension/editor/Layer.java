@@ -28,6 +28,11 @@ public abstract class Layer {
     /** タイムラインに出す短い名前。 */
     public abstract String label();
 
+    /** 見た目が時刻で変わるか。変わるなら、プレビューも書き出しも毎フレーム描き直す。 */
+    public boolean isAnimated() {
+        return false;
+    }
+
     /** 長さ {@code durationMs} の動画での表示の終わり。 */
     public long endMs(long durationMs) {
         return Math.min(endMs, durationMs);

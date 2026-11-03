@@ -1,12 +1,8 @@
 package dev.utaa.cutlog.extension.render;
 
-import android.graphics.Bitmap;
-import android.graphics.Canvas;
 import dev.utaa.cutlog.extension.editor.EditSpec;
 import dev.utaa.cutlog.extension.editor.FilterPreset;
-import dev.utaa.cutlog.extension.editor.LayerPainter;
 import dev.utaa.cutlog.shaded.androidx.media3.common.Effect;
-import dev.utaa.cutlog.shaded.androidx.media3.effect.BitmapOverlay;
 import dev.utaa.cutlog.shaded.androidx.media3.effect.Brightness;
 import dev.utaa.cutlog.shaded.androidx.media3.effect.Contrast;
 import dev.utaa.cutlog.shaded.androidx.media3.effect.HslAdjustment;
@@ -79,10 +75,7 @@ public final class EffectsFactory {
     public static List<Effect> exportEffects(EditSpec spec, int width, int height) {
         List<Effect> effects = colorEffects(spec);
         if (!spec.layers.isEmpty()) {
-            Bitmap bitmap = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888);
-            new LayerPainter().draw(new Canvas(bitmap), width, height, spec.layers);
-            List<TextureOverlay> overlays =
-                    Collections.singletonList(BitmapOverlay.createStaticBitmapOverlay(bitmap));
+            List<TextureOverlay> overlays = Collections.singletonList(new LayerOverlay(spec.layers, width, height));
             effects.add(new OverlayEffect(overlays));
         }
         return effects;

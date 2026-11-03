@@ -97,6 +97,25 @@ private val media3ShaderResourcePatch = resourcePatch {
     }
 }
 
+/** 編集画面の文字に使う同梱フォント（Google Fonts の OFL 書体）。 */
+private val EDITOR_FONTS = listOf("rounded", "heavy", "hand", "dot")
+
+/** 同梱フォントとライセンス文を res/raw に追加する。extension が実行時に ID を引いて読む。 */
+private val editorFontResourcePatch = resourcePatch {
+    execute {
+        val files = EDITOR_FONTS.map { "$it.ttf" to "cutlog_font_$it.ttf" } + ("LICENSE.txt" to "cutlog_fonts_license.txt")
+        for ((name, resource) in files) {
+            val source = "/cutlog/fonts/$name"
+            val bytes = object {}.javaClass.getResourceAsStream(source)?.use { it.readBytes() }
+                ?: throw PatchException("Missing bundled font: $source")
+            val target = get("res/raw/$resource")
+            if (target.exists()) throw PatchException("Font resource already exists: ${target.name}")
+            target.parentFile.mkdirs()
+            target.writeBytes(bytes)
+        }
+    }
+}
+
 /** 撮影直後に編集画面を挟み、編集後の動画を本体の投稿フローへ返す。 */
 @Suppress("unused")
 val captureEditorPatch = bytecodePatch(
@@ -104,7 +123,7 @@ val captureEditorPatch = bytecodePatch(
     description = "撮影直後に編集画面を表示し、フィルターやテキストを焼き込んでから投稿できるようにします。",
 ) {
     compatibleWith(Constants.SETLOG_COMPATIBILITY)
-    dependsOn(media3ShaderResourcePatch)
+    dependsOn(media3ShaderResourcePatch, editorFontResourcePatch)
     extendWith("extensions/cutlog.mpe")
 
     execute {

@@ -154,6 +154,7 @@ public final class EditorDialog extends Dialog implements EditorHost {
     @Override
     public void show() {
         super.show();
+        TextFont.preload();
         preview = new PreviewController(getContext(), previewTexture, new PreviewController.Source() {
             @Override
             public MediaItem mediaItem() {
@@ -196,6 +197,7 @@ public final class EditorDialog extends Dialog implements EditorHost {
             }
             long position = preview.positionMs();
             timeline.setPositionMs(position);
+            overlay.setTimeMs(position);
             timeLabel.setText(TrimPanel.seconds(position) + " / " + TrimPanel.seconds(durationMs()) + " 秒");
             playButton.setText(preview.isPlaying() ? "❚❚" : "▶");
             playButton.setContentDescription(preview.isPlaying() ? "一時停止" : "再生");
@@ -290,7 +292,12 @@ public final class EditorDialog extends Dialog implements EditorHost {
             }
 
             @Override
-            public void onLayerMoved(Layer layer) {}
+            public void onLayerTransformed(Layer layer) {
+                // 2 本指で変えた大きさ・角度をパネルのスライダーに映す。
+                for (ToolPanel panel : panels) {
+                    panel.onLayerSelected(selected);
+                }
+            }
         });
         frame.addView(overlay, matchParent());
 
