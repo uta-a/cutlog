@@ -40,6 +40,8 @@ public final class Renderer {
         output.delete();
         Transformer transformer = new Transformer.Builder(context)
                 .setVideoMimeType(OutputProfile.VIDEO_MIME_TYPE)
+                // 公式撮影分は回転メタデータを持たず、解像度そのもので縦横を表す。縦動画も縦のまま符号化する。
+                .setPortraitEncodingEnabled(true)
                 .addListener(new Transformer.Listener() {
                     @Override
                     public void onCompleted(Composition composition, ExportResult result) {

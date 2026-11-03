@@ -103,3 +103,7 @@ tasks.matching { it.name.startsWith("minifyRelease") }.configureEach {
 dependencies {
     implementation(files(shadeMedia3))
 }
+
+dependencies {
+    testImplementation("junit:junit:4.13.2")
+}

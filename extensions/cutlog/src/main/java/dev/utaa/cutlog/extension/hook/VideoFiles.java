@@ -25,6 +25,10 @@ public final class VideoFiles {
                     retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_VIDEO_WIDTH));
             int height = Integer.parseInt(
                     retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_VIDEO_HEIGHT));
+            String rotation = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_VIDEO_ROTATION);
+            int[] size = displaySize(width, height, rotation == null ? 0 : Integer.parseInt(rotation));
+            width = size[0];
+            height = size[1];
             if (durationMs <= 0 || width <= 0 || height <= 0) {
                 throw new IOException("Invalid video metadata: " + file);
             }
@@ -36,6 +40,12 @@ public final class VideoFiles {
         } finally {
             retriever.release();
         }
+    }
+
+    /** 回転メタデータを反映した表示上の {幅, 高さ}。本体の ac0 と同じく 90 / 270 度で入れ替える。 */
+    static int[] displaySize(int width, int height, int rotationDegrees) {
+        int rotation = ((rotationDegrees % 360) + 360) % 360;
+        return rotation == 90 || rotation == 270 ? new int[] {height, width} : new int[] {width, height};
     }
 
     /** 途中で失敗しても target を壊さないよう、同じディレクトリの一時ファイルへ全量を書いてから置き換える。 */
