@@ -7,6 +7,7 @@ import android.app.Dialog;
 import android.content.Context;
 import android.graphics.Color;
 import android.graphics.Outline;
+import android.net.Uri;
 import android.os.Bundle;
 import android.util.Log;
 import android.view.Choreographer;
@@ -33,6 +34,7 @@ import dev.utaa.cutlog.extension.record.RecordDuration;
 import dev.utaa.cutlog.extension.render.EffectsFactory;
 import dev.utaa.cutlog.extension.render.OutputProfile;
 import dev.utaa.cutlog.extension.render.Renderer;
+import dev.utaa.cutlog.extension.render.Reverser;
 import dev.utaa.cutlog.shaded.androidx.media3.common.Effect;
 import dev.utaa.cutlog.shaded.androidx.media3.common.MediaItem;
 import java.io.File;
@@ -64,6 +66,9 @@ public final class EditorDialog extends Dialog implements EditorHost {
 
     private PreviewController preview;
     private ThumbnailLoader thumbnails;
+    /** 逆再生の中間ファイルを作っている間の処理と、できあがった中間ファイル。 */
+    private Reverser reverser;
+    private File reversedFile;
     private Renderer renderer;
     private Layer selected;
 
@@ -181,7 +186,6 @@ public final class EditorDialog extends Dialog implements EditorHost {
             }
         });
         preview.start();
-        thumbnails = new ThumbnailLoader(getContext(), session.source());
         loadThumbnails();
         Choreographer.getInstance().postFrameCallback(ticker);
     }
@@ -546,14 +550,147 @@ public final class EditorDialog extends Dialog implements EditorHost {
 
     private void onTrimChanged(long startMs) {
         clipStartMs = startMs;
+        if (spec.reverse) {
+            // 逆再生の中間ファイルは前の区間で作ったため、使えなくなる。
+            setReverse(false);
+            android.widget.Toast.makeText(getContext(), "区間を変えたので逆再生を解除しました",
+                    android.widget.Toast.LENGTH_SHORT).show();
+            return;
+        }
         preview.mediaChanged();
         loadThumbnails();
     }
 
     private void loadThumbnails() {
-        long start = normalize ? clipStartMs : 0;
-        // サムネイルは元の動画から読むため、速さを変える前の長さで区切る。
+        if (thumbnails != null) {
+            thumbnails.release();
+        }
+        thumbnails = new ThumbnailLoader(getContext(), input());
+        long start = clipsInput() ? clipStartMs : 0;
+        // サムネイルは入力の動画から読むため、速さを変える前の長さで区切る。
         thumbnails.load(start, baseDurationMs(), frames -> timeline.setThumbnails(frames));
+    }
+
+    @Override
+    public void setReverse(boolean reverse) {
+        if (reverse == spec.reverse || reverser != null) {
+            return;
+        }
+        if (!reverse) {
+            spec.reverse = false;
+            deleteReversed();
+            preview.mediaChanged();
+            loadThumbnails();
+            notifyPanels();
+            return;
+        }
+        File dir = new File(getContext().getCacheDir(), "cutlog-reverse");
+        deleteRecursively(dir);
+        dir.mkdirs();
+        File output = new File(dir, "reversed-" + System.currentTimeMillis() + ".mp4");
+        ReverseProgress progress = new ReverseProgress();
+        reverser = Reverser.start(getContext(), session.source(), normalize ? clipStartMs : 0, baseDurationMs(),
+                source.width, source.height, output, new Reverser.Callback() {
+                    @Override
+                    public void onProgress(float value) {
+                        progress.update(value);
+                    }
+
+                    @Override
+                    public void onSuccess(File file) {
+                        reverser = null;
+                        progress.dismiss();
+                        if (!isShowing()) {
+                            file.delete();
+                            return;
+                        }
+                        reversedFile = file;
+                        spec.reverse = true;
+                        preview.mediaChanged();
+                        loadThumbnails();
+                        notifyPanels();
+                    }
+
+                    @Override
+                    public void onError(Exception error) {
+                        reverser = null;
+                        progress.dismiss();
+                        if (isShowing()) {
+                            showAlert(new AlertDialog.Builder(getContext(), android.R.style.Theme_DeviceDefault_Dialog_Alert)
+                                    .setMessage("逆再生にできませんでした。")
+                                    .setPositiveButton("閉じる", null));
+                        }
+                        notifyPanels();
+                    }
+                });
+        progress.show();
+    }
+
+    /** 逆再生の中間ファイルを作っている間の進み具合。「やめる」で中断する。 */
+    private final class ReverseProgress {
+        private final android.widget.ProgressBar bar;
+        private final AlertDialog dialog;
+
+        ReverseProgress() {
+            Context context = getContext();
+            LinearLayout content = Ui.column(context);
+            int padding = Ui.dp(context, 24);
+            content.setPadding(padding, padding, padding, Ui.dp(context, 8));
+            content.addView(Ui.text(context, "逆再生を準備しています", 15, Ui.TEXT_PRIMARY, false));
+            bar = new android.widget.ProgressBar(context, null, android.R.attr.progressBarStyleHorizontal);
+            bar.setMax(100);
+            bar.setProgressTintList(Ui.accentTint());
+            LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(
+                    ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+            params.topMargin = Ui.dp(context, 16);
+            content.addView(bar, params);
+            dialog = new AlertDialog.Builder(context, android.R.style.Theme_DeviceDefault_Dialog_Alert)
+                    .setView(content)
+                    .setCancelable(false)
+                    .setNegativeButton("やめる", (d, which) -> {
+                        if (reverser != null) {
+                            reverser.cancel();
+                            reverser = null;
+                        }
+                        notifyPanels();
+                    })
+                    .create();
+        }
+
+        void show() {
+            dialog.show();
+            Window window = dialog.getWindow();
+            if (window != null) {
+                window.setBackgroundDrawable(Ui.rounded(getContext(), Ui.SURFACE, 22));
+            }
+            dialog.getButton(AlertDialog.BUTTON_NEGATIVE).setTextColor(Ui.TEXT_PRIMARY);
+        }
+
+        void update(float value) {
+            bar.setProgress(Math.round(value * 100f));
+        }
+
+        void dismiss() {
+            if (dialog.isShowing()) {
+                dialog.dismiss();
+            }
+        }
+    }
+
+    private void deleteReversed() {
+        if (reversedFile != null) {
+            reversedFile.delete();
+            reversedFile = null;
+        }
+    }
+
+    private static void deleteRecursively(File dir) {
+        File[] files = dir.listFiles();
+        if (files != null) {
+            for (File file : files) {
+                file.delete();
+            }
+        }
     }
 
     private void confirmCancel() {
@@ -588,9 +725,10 @@ public final class EditorDialog extends Dialog implements EditorHost {
         Prefs.setLastFilter(getContext(), spec.filter);
         setBusy(true);
         Renderer.Request request =
-                new Renderer.Request(session.source(), spec, outputWidth, outputHeight, session.exportFile());
+                new Renderer.Request(input(), spec, outputWidth, outputHeight, session.exportFile());
         if (normalize) {
-            request.normalized(clipStartMs, clipStartMs + clipDurationMs);
+            long start = clipsInput() ? clipStartMs : 0;
+            request.normalized(start, start + clipDurationMs);
         }
         renderer = Renderer.start(getContext(), request,
                 new Renderer.Callback() {
@@ -670,10 +808,23 @@ public final class EditorDialog extends Dialog implements EditorHost {
         return effects;
     }
 
+    /**
+     * 今の入力。ふだんは撮影・取り込みの動画で、逆再生の間は逆再生にした中間ファイル。中間ファイルは
+     * 取り込んだ動画でも選んだ区間だけなので、そのときは切り出さない。
+     */
+    private Uri input() {
+        return reversedFile != null ? Uri.fromFile(reversedFile) : session.source();
+    }
+
+    /** 入力から切り出すか（取り込んだ動画で、逆再生でないとき）。 */
+    private boolean clipsInput() {
+        return normalize && reversedFile == null;
+    }
+
     /** プレビューの入力。取り込んだ動画は選んだ区間だけをループ再生する。 */
     private MediaItem previewItem() {
-        MediaItem.Builder item = new MediaItem.Builder().setUri(session.source());
-        if (normalize) {
+        MediaItem.Builder item = new MediaItem.Builder().setUri(input());
+        if (clipsInput()) {
             item.setClippingConfiguration(new MediaItem.ClippingConfiguration.Builder()
                     .setStartPositionMs(clipStartMs)
                     .setEndPositionMs(clipStartMs + clipDurationMs)
@@ -697,6 +848,11 @@ public final class EditorDialog extends Dialog implements EditorHost {
             thumbnails.release();
             thumbnails = null;
         }
+        if (reverser != null) {
+            reverser.cancel();
+            reverser = null;
+        }
+        deleteReversed();
     }
 
     // ---- 部品 ----

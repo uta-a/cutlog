@@ -21,6 +21,9 @@ interface EditorHost {
     /** 再生の速さを変える。書き出した動画の長さと、文字・スタンプの表示区間も合わせて変わる。 */
     void setSpeed(float speed);
 
+    /** 逆再生を切り替える。オンにするときは中間ファイルを作り、できあがってから切り替わる。 */
+    void setReverse(boolean reverse);
+
     /** 端末の画像を選んで縮小して読み、main thread で渡す。選ばなかった・読めなかったときは呼ばない。 */
     void pickImage(java.util.function.Consumer<android.graphics.Bitmap> callback);
 

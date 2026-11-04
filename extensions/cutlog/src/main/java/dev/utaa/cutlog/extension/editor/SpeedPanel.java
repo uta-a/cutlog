@@ -13,6 +13,7 @@ final class SpeedPanel extends ToolPanel {
     private final Context context;
     private final List<TextView> chips = new ArrayList<>();
     private TextView lengthLabel;
+    private TextView reverseChip;
 
     SpeedPanel(Context context, EditorHost host) {
         super(host);
@@ -44,6 +45,13 @@ final class SpeedPanel extends ToolPanel {
         }
         panel.addView(row);
 
+        reverseChip = Ui.pillButton(context, "⟲ 逆再生");
+        reverseChip.setOnClickListener(v -> host.setReverse(!host.spec().reverse));
+        LinearLayout.LayoutParams reverseParams = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        reverseParams.topMargin = Ui.dp(context, 12);
+        panel.addView(reverseChip, reverseParams);
+
         lengthLabel = Ui.text(context, "", 14, Ui.TEXT_PRIMARY, false);
         lengthLabel.setPadding(0, Ui.dp(context, 16), 0, 0);
         panel.addView(lengthLabel);
@@ -57,7 +65,16 @@ final class SpeedPanel extends ToolPanel {
         return panel;
     }
 
+    /** 逆再生の切り替えが終わったときにも呼ばれる。 */
+    @Override
+    void onLayerSelected(Layer layer) {
+        if (lengthLabel != null) {
+            refresh();
+        }
+    }
+
     private void refresh() {
+        Ui.setChipSelected(context, reverseChip, host.spec().reverse);
         float current = host.spec().speed;
         for (TextView chip : chips) {
             Ui.setChipSelected(context, chip, (Float) chip.getTag() == current);
