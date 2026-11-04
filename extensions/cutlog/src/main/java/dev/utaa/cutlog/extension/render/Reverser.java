@@ -1,35 +1,53 @@
 package dev.utaa.cutlog.extension.render;
 
 import android.content.Context;
-import android.graphics.Bitmap;
-import android.graphics.Matrix;
+import android.graphics.Rect;
 import android.media.Image;
 import android.media.MediaCodec;
 import android.media.MediaCodecInfo;
 import android.media.MediaExtractor;
 import android.media.MediaFormat;
-import android.media.MediaMetadataRetriever;
 import android.media.MediaMuxer;
 import android.net.Uri;
 import android.os.Handler;
 import android.os.Looper;
 import android.util.Log;
 import dev.utaa.cutlog.extension.hook.CaptureInterceptor;
+import dev.utaa.cutlog.shaded.androidx.media3.common.Effect;
+import dev.utaa.cutlog.shaded.androidx.media3.common.MediaItem;
+import dev.utaa.cutlog.shaded.androidx.media3.effect.Presentation;
+import dev.utaa.cutlog.shaded.androidx.media3.transformer.Composition;
+import dev.utaa.cutlog.shaded.androidx.media3.transformer.DefaultEncoderFactory;
+import dev.utaa.cutlog.shaded.androidx.media3.transformer.EditedMediaItem;
+import dev.utaa.cutlog.shaded.androidx.media3.transformer.EditedMediaItemSequence;
+import dev.utaa.cutlog.shaded.androidx.media3.transformer.Effects;
+import dev.utaa.cutlog.shaded.androidx.media3.transformer.ExportException;
+import dev.utaa.cutlog.shaded.androidx.media3.transformer.ExportResult;
+import dev.utaa.cutlog.shaded.androidx.media3.transformer.ProgressHolder;
+import dev.utaa.cutlog.shaded.androidx.media3.transformer.Transformer;
+import dev.utaa.cutlog.shaded.androidx.media3.transformer.VideoEncoderSettings;
 import java.io.ByteArrayOutputStream;
 import java.io.File;
 import java.io.IOException;
 import java.nio.ByteBuffer;
 import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.Collections;
 import java.util.List;
 import java.util.concurrent.CancellationException;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 /**
  * 動画の区間を逆再生にした中間ファイル（H.264 + AAC の mp4）を作る。Media3 に逆再生が無いため、
- * MediaMetadataRetriever で後ろから少しずつフレームを取り出して逆順にエンコードし、音声は PCM に戻して
- * 逆順にしてから AAC にし直す。メモリに載せるのは {@link #CHUNK} 枚分のフレームと、区間の PCM だけ。
+ * 映像は後ろから少しずつ復号して逆順にエンコードし、音声は PCM に戻して逆順にしてから AAC にし直す。
  *
- * <p>裏のスレッドで動き、進み具合と結果は main thread へ返す。途中でやめたら出力を消す。
+ * <p>後ろから復号すると、そのたびに直前のキーフレームから復号し直すことになり、キーフレームが少ない動画では
+ * 長さの 2 乗で遅くなる。そこで先に Transformer（GPU）で区間を切り出し、表示上の向き・大きさにして、全フレームを
+ * キーフレームにした下ごしらえを作る。そこから {@link #CHUNK} 枚ずつ YUV のまま復号し、そのままエンコーダーへ渡す。
+ * メモリに載せるのは {@link #CHUNK} 枚分の YUV と、区間の PCM だけ。
+ *
+ * <p>main thread から始める。取り出しとエンコードは裏のスレッドで動き、進み具合と結果は main thread へ返す。
+ * 途中でやめたら出力を消す。
  */
 public final class Reverser {
     public interface Callback {
@@ -46,9 +64,14 @@ public final class Reverser {
     private static final int VIDEO_BITRATE = 12_000_000;
     private static final int AUDIO_BITRATE = 128_000;
     private static final int MAX_SIDE = 1280;
-    /** 一度に取り出すフレームの数。フル HD でも 1 枚 8MB ほどなので、この程度に抑える。 */
-    private static final int CHUNK = 8;
+    /** 一度に復号して溜めるフレームの数。720p の YUV は 1 枚 1.4MB ほど。 */
+    private static final int CHUNK = 16;
     private static final long TIMEOUT_US = 10_000;
+    /** 全フレームがキーフレームの下ごしらえは 1 枚ごとの容量が大きいので、ビットレートも高めにする。 */
+    private static final int INTRA_BITRATE = 40_000_000;
+    /** 進み具合のうち、下ごしらえが占める割合。 */
+    private static final float PREPARE_SHARE = 0.4f;
+    private static final long PROGRESS_INTERVAL_MS = 100;
 
     private final Context context;
     private final Uri source;
@@ -60,6 +83,8 @@ public final class Reverser {
     private final Callback callback;
     private final Handler main = new Handler(Looper.getMainLooper());
     private final AtomicBoolean cancelled = new AtomicBoolean();
+    private final File intra;
+    private Transformer transformer;
 
     private Reverser(Context context, Uri source, long startMs, long lengthMs, int displayWidth, int displayHeight,
             File output, Callback callback) {
@@ -71,19 +96,97 @@ public final class Reverser {
         this.displayHeight = displayHeight;
         this.output = output;
         this.callback = callback;
+        this.intra = new File(output.getPath() + ".intra.mp4");
     }
 
     /** source の [startMs, startMs + lengthMs) を逆再生にして output へ書く。displayWidth・Height は表示上の向き。 */
     public static Reverser start(Context context, Uri source, long startMs, long lengthMs, int displayWidth,
             int displayHeight, File output, Callback callback) {
         Reverser reverser = new Reverser(context, source, startMs, lengthMs, displayWidth, displayHeight, output, callback);
-        new Thread(reverser::run, "cutlog-reverse").start();
+        reverser.prepare();
         return reverser;
     }
 
-    /** やめる。callback はもう呼ばない。 */
+    /** やめる。callback はもう呼ばない。main thread から呼ぶ。 */
     public void cancel() {
         cancelled.set(true);
+        if (transformer != null) {
+            transformer.cancel();
+            transformer = null;
+            intra.delete();
+        }
+    }
+
+    /** 区間を切り出し、表示上の向き・大きさで全フレームをキーフレームにした下ごしらえを intra へ書く。 */
+    private void prepare() {
+        intra.delete();
+        int[] size = ReverseMath.encodeSize(displayWidth, displayHeight, MAX_SIDE);
+        VideoEncoderSettings settings = new VideoEncoderSettings.Builder()
+                .setBitrate(INTRA_BITRATE)
+                .setiFrameIntervalSeconds(0f)
+                .build();
+        transformer = new Transformer.Builder(context)
+                .setVideoMimeType(VIDEO_MIME)
+                .setPortraitEncodingEnabled(true)
+                .setEncoderFactory(new DefaultEncoderFactory.Builder(context)
+                        .setRequestedVideoEncoderSettings(settings)
+                        .build())
+                .addListener(new Transformer.Listener() {
+                    @Override
+                    public void onCompleted(Composition composition, ExportResult result) {
+                        transformer = null;
+                        if (cancelled.get()) {
+                            intra.delete();
+                            return;
+                        }
+                        Log.i(CaptureInterceptor.TAG, "Prepared intra-only video: " + result.width + "x" + result.height
+                                + ", " + result.videoFrameCount + " frames");
+                        new Thread(Reverser.this::run, "cutlog-reverse").start();
+                    }
+
+                    @Override
+                    public void onError(Composition composition, ExportResult result, ExportException error) {
+                        transformer = null;
+                        intra.delete();
+                        if (cancelled.get()) {
+                            return;
+                        }
+                        Log.w(CaptureInterceptor.TAG, "Cannot prepare the video for reversing.", error);
+                        callback.onError(error);
+                    }
+                })
+                .build();
+        MediaItem item = new MediaItem.Builder()
+                .setUri(source)
+                .setClippingConfiguration(new MediaItem.ClippingConfiguration.Builder()
+                        .setStartPositionMs(startMs)
+                        .setEndPositionMs(startMs + lengthMs)
+                        .build())
+                .build();
+        List<Effect> effects = Collections.singletonList(
+                Presentation.createForWidthAndHeight(size[0], size[1], Presentation.LAYOUT_SCALE_TO_FIT));
+        EditedMediaItem edited = new EditedMediaItem.Builder(item)
+                .setRemoveAudio(true)
+                .setEffects(new Effects(Collections.emptyList(), effects))
+                .build();
+        // HDR の動画は、書き出しと同じく SDR へ落とす。
+        Composition composition = new Composition.Builder(new EditedMediaItemSequence.Builder(edited).build())
+                .setHdrMode(Composition.HDR_MODE_TONE_MAP_HDR_TO_SDR_USING_OPEN_GL)
+                .build();
+        transformer.start(composition, intra.getPath());
+        pollProgress();
+    }
+
+    private void pollProgress() {
+        Transformer current = transformer;
+        if (current == null || cancelled.get()) {
+            return;
+        }
+        ProgressHolder holder = new ProgressHolder();
+        if (current.getProgress(holder) == Transformer.PROGRESS_STATE_AVAILABLE) {
+            callback.onProgress(PREPARE_SHARE * holder.progress / 100f);
+        }
+        main.postDelayed(this::pollProgress, PROGRESS_INTERVAL_MS);
     }
 
     private void run() {
@@ -102,6 +205,8 @@ public final class Reverser {
                 Log.w(CaptureInterceptor.TAG, "Cannot reverse the video.", e);
                 main.post(() -> callback.onError(e));
             }
+        } finally {
+            intra.delete();
         }
     }
 
@@ -112,74 +217,80 @@ public final class Reverser {
     }
 
     private void reverse() throws IOException {
+        long began = System.nanoTime();
         output.delete();
         AudioTrack audio = reverseAudio();
-        MediaMetadataRetriever retriever = new MediaMetadataRetriever();
-        MediaMuxer muxer = null;
+        MediaExtractor extractor = new MediaExtractor();
+        MediaCodec decoder = null;
         MediaCodec encoder = null;
+        MediaMuxer muxer = null;
         try {
-            retriever.setDataSource(context, source);
-            long durationMs = parseLong(retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_DURATION));
-            int frameCount = (int) parseLong(retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_VIDEO_FRAME_COUNT));
-            int rotation = (int) parseLong(retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_VIDEO_ROTATION));
-            int[] range = ReverseMath.frameRange(startMs, lengthMs, durationMs, frameCount);
-            int count = range[1] - range[0];
-            if (count <= 0) {
-                throw new IOException("No frames to reverse: duration=" + durationMs + "ms, frames=" + frameCount);
+            extractor.setDataSource(intra.getPath());
+            int track = findTrack(extractor, "video/");
+            if (track < 0) {
+                throw new IOException("No video track in the prepared video");
             }
-            double fps = frameCount * 1000.0 / durationMs;
-            int[] size = ReverseMath.encodeSize(displayWidth, displayHeight, MAX_SIDE);
-            int width = size[0];
-            int height = size[1];
+            extractor.selectTrack(track);
+            MediaFormat input = extractor.getTrackFormat(track);
+            long[] times = sampleTimes(extractor);
+            int count = times.length;
+            if (count == 0) {
+                throw new IOException("No frames to reverse");
+            }
+            int width = input.getInteger(MediaFormat.KEY_WIDTH);
+            int height = input.getInteger(MediaFormat.KEY_HEIGHT);
+
+            input.setInteger(MediaFormat.KEY_COLOR_FORMAT, MediaCodecInfo.CodecCapabilities.COLOR_FormatYUV420Flexible);
+            decoder = MediaCodec.createDecoderByType(input.getString(MediaFormat.KEY_MIME));
+            decoder.configure(input, null, null, 0);
+            decoder.start();
 
             MediaFormat format = MediaFormat.createVideoFormat(VIDEO_MIME, width, height);
             format.setInteger(MediaFormat.KEY_COLOR_FORMAT, MediaCodecInfo.CodecCapabilities.COLOR_FormatYUV420Flexible);
             format.setInteger(MediaFormat.KEY_BIT_RATE, VIDEO_BITRATE);
-            format.setInteger(MediaFormat.KEY_FRAME_RATE, (int) Math.max(1, Math.round(fps)));
+            format.setInteger(MediaFormat.KEY_FRAME_RATE, input.getNumber(MediaFormat.KEY_FRAME_RATE, 30).intValue());
             format.setInteger(MediaFormat.KEY_I_FRAME_INTERVAL, 1);
             encoder = MediaCodec.createEncoderByType(VIDEO_MIME);
             encoder.configure(format, null, null, MediaCodec.CONFIGURE_FLAG_ENCODE);
             encoder.start();
             muxer = new MediaMuxer(output.getPath(), MediaMuxer.OutputFormat.MUXER_OUTPUT_MPEG_4);
+            muxer.setOrientationHint(input.getInteger(MediaFormat.KEY_ROTATION, 0));
             Muxing muxing = new Muxing(muxer, audio);
 
-            int[] pixels = new int[width * height];
+            // 逆再生の k 枚目は、元の最後のフレームから元の間隔のまま遡った時刻に置く。
+            long lastUs = times[count - 1];
             int written = 0;
-            for (int chunkEnd = range[1]; chunkEnd > range[0]; chunkEnd -= CHUNK) {
+            for (int chunkEnd = count; chunkEnd > 0; chunkEnd -= CHUNK) {
                 checkCancelled();
-                int chunkStart = Math.max(range[0], chunkEnd - CHUNK);
-                List<Bitmap> frames = retriever.getFramesAtIndex(chunkStart, chunkEnd - chunkStart);
-                for (int k = frames.size() - 1; k >= 0; k--) {
+                int chunkStart = Math.max(0, chunkEnd - CHUNK);
+                byte[][][] frames = decodeRange(extractor, decoder, times, chunkStart, chunkEnd, width, height);
+                for (int k = frames.length - 1; k >= 0; k--) {
                     checkCancelled();
-                    Bitmap frame = orient(frames.get(k), rotation);
-                    Bitmap scaled = Bitmap.createScaledBitmap(frame, width, height, true);
-                    scaled.getPixels(pixels, 0, width, 0, 0, width, height);
-                    if (scaled != frame) {
-                        scaled.recycle();
-                    }
-                    frame.recycle();
-                    long ptsUs = Math.round(written * 1_000_000.0 / fps);
-                    queueFrame(encoder, muxing, pixels, width, height, ptsUs);
+                    byte[][] frame = frames[k];
+                    frames[k] = null;
+                    queueFrame(encoder, muxing, frame, width, height, lastUs - times[chunkStart + k]);
                     written++;
-                    float progress = 0.1f + 0.9f * written / count;
+                    float progress = PREPARE_SHARE + (1f - PREPARE_SHARE) * written / count;
                     main.post(() -> {
                         if (!cancelled.get()) {
                             callback.onProgress(progress);
                         }
                     });
                 }
-                frames.clear();
             }
             int index;
             while ((index = encoder.dequeueInputBuffer(TIMEOUT_US)) < 0) {
                 drain(encoder, muxing, false);
             }
-            long endUs = Math.round(written * 1_000_000.0 / fps);
+            long endUs = lastUs - times[0] + (count > 1 ? (lastUs - times[0]) / (count - 1) : 33_333);
             encoder.queueInputBuffer(index, 0, 0, endUs, MediaCodec.BUFFER_FLAG_END_OF_STREAM);
             drain(encoder, muxing, true);
-            Log.i(CaptureInterceptor.TAG, "Reversed " + written + " frames (" + width + "x" + height + ", "
-                    + String.format(java.util.Locale.ROOT, "%.1f", fps) + "fps), audio=" + (audio != null));
+            Log.i(CaptureInterceptor.TAG, "Reversed " + written + " frames (" + width + "x" + height + "), audio="
+                    + (audio != null) + ", " + (System.nanoTime() - began) / 1_000_000 + "ms");
         } finally {
+            if (decoder != null) {
+                decoder.release();
+            }
             if (encoder != null) {
                 try {
                     encoder.stop();
@@ -196,30 +307,123 @@ public final class Reverser {
                 }
                 muxer.release();
             }
-            try {
-                retriever.release();
-            } catch (IOException ignored) {
-                // 片付けの失敗は結果に影響しない。
+            extractor.release();
+        }
+    }
+
+    private static int findTrack(MediaExtractor extractor, String mimePrefix) {
+        for (int i = 0; i < extractor.getTrackCount(); i++) {
+            String mime = extractor.getTrackFormat(i).getString(MediaFormat.KEY_MIME);
+            if (mime != null && mime.startsWith(mimePrefix)) {
+                return i;
+            }
+        }
+        return -1;
+    }
+
+    /** 選んだトラックの全サンプルの時刻を、表示順に並べて返す。読み終えたら先頭へ戻す。 */
+    private static long[] sampleTimes(MediaExtractor extractor) {
+        long[] times = new long[64];
+        int count = 0;
+        long time;
+        while ((time = extractor.getSampleTime()) >= 0) {
+            if (count == times.length) {
+                times = Arrays.copyOf(times, count * 2);
+            }
+            times[count++] = time;
+            extractor.advance();
+        }
+        extractor.seekTo(0, MediaExtractor.SEEK_TO_PREVIOUS_SYNC);
+        times = Arrays.copyOf(times, count);
+        Arrays.sort(times);
+        return times;
+    }
+
+    /**
+     * times[start]〜times[end - 1] のフレームを復号し、I420（Y・U・V を詰めて並べたもの）で返す。
+     * 直前のキーフレームから復号するが、下ごしらえは全フレームがキーフレームなので、ほぼ区間の分だけで済む。
+     */
+    private byte[][][] decodeRange(MediaExtractor extractor, MediaCodec decoder, long[] times, int start, int end,
+            int width, int height) throws IOException {
+        decoder.flush();
+        extractor.seekTo(times[start], MediaExtractor.SEEK_TO_PREVIOUS_SYNC);
+        byte[][][] frames = new byte[end - start][][];
+        int got = 0;
+        boolean inputDone = false;
+        MediaCodec.BufferInfo info = new MediaCodec.BufferInfo();
+        while (got < frames.length) {
+            checkCancelled();
+            if (!inputDone) {
+                int index = decoder.dequeueInputBuffer(TIMEOUT_US);
+                if (index >= 0) {
+                    ByteBuffer buffer = decoder.getInputBuffer(index);
+                    int size = buffer != null ? extractor.readSampleData(buffer, 0) : -1;
+                    if (size < 0) {
+                        decoder.queueInputBuffer(index, 0, 0, 0, MediaCodec.BUFFER_FLAG_END_OF_STREAM);
+                        inputDone = true;
+                    } else {
+                        decoder.queueInputBuffer(index, 0, size, extractor.getSampleTime(), 0);
+                        extractor.advance();
+                    }
+                }
+            }
+            int index = decoder.dequeueOutputBuffer(info, inputDone ? TIMEOUT_US : 0);
+            if (index < 0) {
+                continue;
+            }
+            int slot = Arrays.binarySearch(times, start, end, info.presentationTimeUs);
+            if (slot >= 0 && frames[slot - start] == null) {
+                Image image = decoder.getOutputImage(index);
+                if (image != null) {
+                    frames[slot - start] = copyImage(image, width, height);
+                    image.close();
+                    got++;
+                }
+            }
+            decoder.releaseOutputBuffer(index, false);
+            if ((info.flags & MediaCodec.BUFFER_FLAG_END_OF_STREAM) != 0) {
+                break;
+            }
+        }
+        if (got < frames.length) {
+            throw new IOException("Decoded " + got + " of " + frames.length + " frames at " + times[start] + "us");
+        }
+        return frames;
+    }
+
+    /** 復号した Image の表示範囲を I420 に詰めて写す。 */
+    private static byte[][] copyImage(Image image, int width, int height) {
+        Rect crop = image.getCropRect();
+        Image.Plane[] planes = image.getPlanes();
+        byte[] y = new byte[width * height];
+        byte[] u = new byte[width * height / 4];
+        byte[] v = new byte[width * height / 4];
+        readPlane(planes[0], y, width, height, crop.left, crop.top);
+        readPlane(planes[1], u, width / 2, height / 2, crop.left / 2, crop.top / 2);
+        readPlane(planes[2], v, width / 2, height / 2, crop.left / 2, crop.top / 2);
+        return new byte[][] {y, u, v};
+    }
+
+    private static void readPlane(Image.Plane plane, byte[] bytes, int width, int height, int left, int top) {
+        ByteBuffer buffer = plane.getBuffer();
+        int rowStride = plane.getRowStride();
+        int pixelStride = plane.getPixelStride();
+        for (int row = 0; row < height; row++) {
+            int base = (top + row) * rowStride + left * pixelStride;
+            int rowStart = row * width;
+            if (pixelStride == 1) {
+                buffer.position(base);
+                buffer.get(bytes, rowStart, width);
+            } else {
+                for (int x = 0; x < width; x++) {
+                    bytes[rowStart + x] = buffer.get(base + x * pixelStride);
+                }
             }
         }
     }
 
-    /** 90 / 270 度の回転付き動画で、取り出したフレームが回転前の向きなら、表示上の向きに回す。 */
-    private Bitmap orient(Bitmap frame, int rotation) {
-        boolean frameLandscape = frame.getWidth() > frame.getHeight();
-        boolean displayLandscape = displayWidth > displayHeight;
-        if (rotation % 180 == 0 || frameLandscape == displayLandscape) {
-            return frame;
-        }
-        Matrix matrix = new Matrix();
-        matrix.postRotate(rotation);
-        Bitmap rotated = Bitmap.createBitmap(frame, 0, 0, frame.getWidth(), frame.getHeight(), matrix, true);
-        frame.recycle();
-        return rotated;
-    }
-
-    /** ARGB のフレームを YUV420 にしてエンコーダーへ入れる。プレーンの並びは Image の stride に従う。 */
-    private void queueFrame(MediaCodec encoder, Muxing muxing, int[] pixels, int width, int height, long ptsUs) {
+    /** I420 のフレームをエンコーダーへ入れる。プレーンの並びは Image の stride に従う。 */
+    private void queueFrame(MediaCodec encoder, Muxing muxing, byte[][] frame, int width, int height, long ptsUs) {
         int index;
         while ((index = encoder.dequeueInputBuffer(TIMEOUT_US)) < 0) {
             checkCancelled();
@@ -230,40 +434,38 @@ public final class Reverser {
             throw new IllegalStateException("Encoder has no input image");
         }
         Image.Plane[] planes = image.getPlanes();
-        ByteBuffer yPlane = planes[0].getBuffer();
-        ByteBuffer uPlane = planes[1].getBuffer();
-        ByteBuffer vPlane = planes[2].getBuffer();
-        int yRow = planes[0].getRowStride();
-        int yPixel = planes[0].getPixelStride();
-        int uRow = planes[1].getRowStride();
-        int uPixel = planes[1].getPixelStride();
-        int vRow = planes[2].getRowStride();
-        int vPixel = planes[2].getPixelStride();
+        writePlane(planes[0], frame[0], width, height);
+        writePlane(planes[1], frame[1], width / 2, height / 2);
+        writePlane(planes[2], frame[2], width / 2, height / 2);
+        encoder.queueInputBuffer(index, 0, width * height * 3 / 2, ptsUs, 0);
+        drain(encoder, muxing, false);
+    }
+
+    /** 詰めて並べた 1 面を、Image のプレーンへ写す。画素が隣り合っていれば行ごとにまとめて書く。 */
+    private static void writePlane(Image.Plane plane, byte[] bytes, int width, int height) {
+        ByteBuffer buffer = plane.getBuffer();
+        int rowStride = plane.getRowStride();
+        int pixelStride = plane.getPixelStride();
         for (int y = 0; y < height; y++) {
             int rowStart = y * width;
-            for (int x = 0; x < width; x++) {
-                int p = pixels[rowStart + x];
-                int r = (p >> 16) & 0xff;
-                int g = (p >> 8) & 0xff;
-                int b = p & 0xff;
-                yPlane.put(y * yRow + x * yPixel, (byte) ReverseMath.y(r, g, b));
-                if ((y & 1) == 0 && (x & 1) == 0) {
-                    int cy = y >> 1;
-                    int cx = x >> 1;
-                    uPlane.put(cy * uRow + cx * uPixel, (byte) ReverseMath.u(r, g, b));
-                    vPlane.put(cy * vRow + cx * vPixel, (byte) ReverseMath.v(r, g, b));
+            if (pixelStride == 1) {
+                buffer.position(y * rowStride);
+                buffer.put(bytes, rowStart, width);
+            } else {
+                int base = y * rowStride;
+                for (int x = 0; x < width; x++) {
+                    buffer.put(base + x * pixelStride, bytes[rowStart + x]);
                 }
             }
         }
-        encoder.queueInputBuffer(index, 0, width * height * 3 / 2, ptsUs, 0);
-        drain(encoder, muxing, false);
     }
 
     /** エンコーダーの出力を muxer へ書く。映像の形式が決まったところで muxer を始める。 */
     private void drain(MediaCodec encoder, Muxing muxing, boolean untilEnd) {
         MediaCodec.BufferInfo info = new MediaCodec.BufferInfo();
         while (true) {
-            int index = encoder.dequeueOutputBuffer(info, TIMEOUT_US);
+            // 途中では出力が無ければ待たずに戻る。待つと 1 フレームごとに待ち時間が積み重なる。
+            int index = encoder.dequeueOutputBuffer(info, untilEnd ? TIMEOUT_US : 0);
             if (index == MediaCodec.INFO_TRY_AGAIN_LATER) {
                 if (!untilEnd) {
                     return;
@@ -498,16 +700,5 @@ public final class Reverser {
             return null;
         }
         return new AudioTrack(outputFormat, samples, infos);
-    }
-
-    private static long parseLong(String value) {
-        if (value == null) {
-            return 0;
-        }
-        try {
-            return Long.parseLong(value.trim());
-        } catch (NumberFormatException e) {
-            return 0;
-        }
     }
 }
