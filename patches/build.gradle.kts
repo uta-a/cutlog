@@ -21,6 +21,13 @@ dependencies {
 }
 
 tasks {
+    // 配布する .mpp にもライセンスと NOTICE を入れる。
+    withType<Jar>().configureEach {
+        from(files(rootProject.file("LICENSE"), rootProject.file("NOTICE"))) {
+            into("META-INF")
+        }
+    }
+
     register<JavaExec>("generatePatchesList") {
         description = "Build patch bundle metadata"
 

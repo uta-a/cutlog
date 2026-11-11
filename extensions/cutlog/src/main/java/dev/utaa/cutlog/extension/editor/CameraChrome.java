@@ -72,15 +72,18 @@ final class CameraChrome {
         float shutterX = shutter.getLeft() + shutter.getTranslationX() + shutter.getWidth() / 2f;
         float centerY = shutter.getTop() + shutter.getTranslationY() + shutter.getHeight() / 2f;
         float unit = Ui.dp(control.getContext(), 89);
+        boolean visible = shown.getAsBoolean();
         if (flash != null && flash.getWidth() > 0) {
             unit = shutterX - (flash.getLeft() + flash.getTranslationX() + flash.getWidth() / 2f);
             centerY = flash.getTop() + flash.getTranslationY() + flash.getHeight() / 2f;
-            control.setVisibility(flash.getVisibility() == View.GONE ? View.GONE : View.VISIBLE);
+            // setlog 1.3 はフラッシュを GONE にしない（カメラの権限が無いときも INVISIBLE、フラッシュが使えないときは
+            // 半透明にするだけ）。今後の版でシャッターの並びごと消すようになった場合に合わせて隠す。
+            visible &= flash.getVisibility() != View.GONE;
         }
-        if (!shown.getAsBoolean()) {
-            control.setVisibility(View.GONE);
-        } else if (flash == null || flash.getWidth() <= 0) {
-            control.setVisibility(View.VISIBLE);
+        // 同じ値を入れ直すと余計なレイアウト要求になるため、変わるときだけ設定する。
+        int visibility = visible ? View.VISIBLE : View.GONE;
+        if (control.getVisibility() != visibility) {
+            control.setVisibility(visibility);
         }
         View parent = (View) control.getParent();
         // 親は画面の幅いっぱいだが、カメラ映像の枠は内側に約 12dp 入っている。枠より内側に収める。

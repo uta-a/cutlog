@@ -116,6 +116,19 @@ private val editorFontResourcePatch = resourcePatch {
     }
 }
 
+/** 同梱したライブラリとフォントのライセンス表示を res/raw に追加する（APK にも表示義務のある文を残す）。 */
+private val thirdPartyNoticesResourcePatch = resourcePatch {
+    execute {
+        val source = "/cutlog/THIRD_PARTY_NOTICES.txt"
+        val bytes = object {}.javaClass.getResourceAsStream(source)?.use { it.readBytes() }
+            ?: throw PatchException("Missing bundled notices: $source")
+        val target = get("res/raw/cutlog_third_party_notices.txt")
+        if (target.exists()) throw PatchException("Notice resource already exists: ${target.name}")
+        target.parentFile.mkdirs()
+        target.writeBytes(bytes)
+    }
+}
+
 /** 撮影直後に編集画面を挟み、編集後の動画を本体の投稿フローへ返す。 */
 @Suppress("unused")
 val captureEditorPatch = bytecodePatch(
@@ -123,7 +136,7 @@ val captureEditorPatch = bytecodePatch(
     description = "撮影直後に編集画面を表示し、フィルターやテキストを焼き込んでから投稿できるようにします。撮影画面に cutlog の設定ボタンを追加します。",
 ) {
     compatibleWith(Constants.SETLOG_COMPATIBILITY)
-    dependsOn(media3ShaderResourcePatch, editorFontResourcePatch)
+    dependsOn(media3ShaderResourcePatch, editorFontResourcePatch, thirdPartyNoticesResourcePatch)
     extendWith("extensions/cutlog.mpe")
 
     execute {
