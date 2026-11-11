@@ -33,8 +33,8 @@ private val localInstallerCheckFingerprint = Fingerprint(
 /** PairIP のローカルインストール元判定だけを通す。Play ライセンス通信は変更しない。 */
 @Suppress("unused")
 val cutlogPatch = bytecodePatch(
-    name = "cutlog",
-    description = "setlog のローカルインストール元チェックを通します。Play ライセンス通信は変更しません。",
+    name = "インストール元チェック",
+    description = "Google Play 以外からインストールした setlog が起動時のインストール元チェックで止まらないようにします。Play ライセンスの確認は変更しません。",
 ) {
     compatibleWith(Constants.SETLOG_COMPATIBILITY)
 

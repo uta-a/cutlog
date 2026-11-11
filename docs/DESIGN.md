@@ -21,7 +21,7 @@ cutlog は、setlog（Android 版）を Morphe でパッチし、「撮った動
 | F2 | フィルター（モノクロ、セピア、彩度・明るさ・コントラスト、LUT）をかけられる | 必須 |
 | F3 | テキストを位置・色・サイズ指定で焼き込める（複数可） | 必須 |
 | F4 | 撮影の代わりに端末内の任意の動画を選び、トリムして「今の時間」のログとして投稿できる | 必須 |
-| F5 | 過去の時間帯に投稿できる | 調査次第 |
+| F5 | 過去の時間帯に投稿できる | 実装しない（Phase 5 で決定） |
 | F6 | 機能ごとの ON/OFF を設定画面から切り替えられる | 任意 |
 
 非機能要件:
@@ -68,7 +68,10 @@ cutlog/
     ├─ extension/render/EffectsFactory.java    # EditSpec → Media3 Effect
     ├─ extension/render/Renderer.java          # Media3 Transformer で書き出し
     ├─ extension/render/OutputProfile.java     # 公式撮影分に合わせる出力仕様
-    ├─ extension/pref/Prefs.java               # 最後に使ったフィルター
+    ├─ extension/editor/SettingsButton.java    # 撮影画面の歯車ボタン（F6）
+    ├─ extension/editor/SettingsDialog.java    # 機能ごとの ON/OFF（F6）
+    ├─ extension/pref/Feature.java             # ON/OFF できる機能と、パッチが当たっているか
+    ├─ extension/pref/Prefs.java               # 最後に使ったフィルター・撮影の長さ・機能の ON/OFF
     └─ shaded/androidx/media3/effect/R.java    # 付け替えた media3 が読む R.raw（実行時に ID を引く）
 ```
 
@@ -79,7 +82,7 @@ cutlog/
 - 編集画面を重ねる Activity は `MainActivity.onResume` のフックで受け取る（setlog は単一 Activity）
 - `Renderer.start(...)`：Media3 Transformer は Looper スレッドの非同期 API なので、完了コールバックで編集済みファイルを渡す。書き出し先は録画と同じディレクトリで、完了後に rename で録画ファイルを置き換える
 - 編集画面は全画面 Dialog。マニフェスト登録が不要で、カメラ画面の状態を保ったまま本体へ戻せる。プロセスが終了すると預かった録画結果は失われる（本体の撮影からやり直しになる）
-- media3 1.11.1 は本体のものを流用できないため、依存ごと `dev.utaa.cutlog.shaded.*` へ付け替えて同梱する（README 参照）
+- media3 1.11.1 は本体のものを流用できないため、依存ごと `dev.utaa.cutlog.shaded.*` へ付け替えて同梱する（DEVELOPMENT.md 参照）
 
 ### Google ログインの提供元
 
@@ -119,7 +122,7 @@ manifest には package visibility と元 APK 署名の SHA-1 を申告する me
 
 ## 任意動画の投稿と時刻の扱い
 
-任意動画（F4）は「録画の代わりにファイルを渡す」だけで実現し、投稿処理は公式のまま使う。過去の時間帯（F5）は Phase 0 で「投稿時刻はクライアント送信値」と判明したため技術的には書き換え可能だが、サーバー検証とスコープ定義（サーバー送信値の操作）の両面で Phase 5 に判断を持ち越す。
+任意動画（F4）は「録画の代わりにファイルを渡す」だけで実現し、投稿処理は公式のまま使う。過去の時間帯（F5）は Phase 0 で「投稿時刻はクライアント送信値」と判明したため技術的には書き換え可能だが、サーバーへ送る値を偽ることになるため、Phase 5 で実装しないと決めた。取り込んだ動画も撮影時刻は「今」として送る。
 
 任意動画の流れ（Phase 3 で実装）:
 
@@ -204,7 +207,7 @@ Phase 2〜3 の編集画面（タブ 3〜4 枚）を、ツールバーとタイ�
 
 | リスク | 影響 | 対策 |
 | --- | --- | --- |
-| 利用規約違反としてアカウント停止 | 大 | 検証はサブアカウントで行う。配布する場合は README で明示 |
+| 利用規約違反としてアカウント停止 | 大 | 検証はサブアカウントで行う。README の冒頭で明示した |
 | サーバーが長さ・解像度・メタデータを検証して弾く | 大 | `OutputProfile` で公式と同じ仕様に揃える。メディアは暗号化されるため差し替えは G0 より前で行う |
 | PairIP licensecheck で起動不可 | 大 | APK 署名検証・Play Integrity は見当たらないが、起動時 Play ライセンスチェックあり。ローカルインストール元判定を通すパッチは実装・適用済み。Android 13 実機で40秒後も生存し、安全設定画面への到達を確認。Play 通信は残る。詳細は [compatibility/pairip-integrity.md](compatibility/pairip-integrity.md) |
 | アプリ更新でフック点が変わる | 中 | fingerprint は文字列・命令パターン基準。対応バージョンを `compatibleWith` で固定 |
@@ -223,7 +226,7 @@ Phase 1 の「無編集で差し替えた動画が普通に投稿できる」が
 3. Phase 2 編集画面: EditorDialog ＋ Renderer、フィルターとテキスト（F1〜F3）。実装済み。実機で編集・書き出し・本体への受け渡しと、dev グループへの投稿・別端末での再生を確認
 4. Phase 3 任意動画: 「ファイルから」ボタンとトリム（F4）。実装済み。実機で取り込み・トリム・仕様への変換・本体への受け渡しと、dev グループへの投稿・別端末での再生を確認
 5. Phase 4 編集画面の作り込み: ツールバーとタイムラインを持つ専用の編集画面に作り替え、文字・スタンプ・効果・フレーム・速度・反転・ズーム・逆再生を足す。実装済み。実機でプレビューと書き出し、速さを変えた動画の投稿・別端末での再生を確認。2 本指の操作、端末の画像のスタンプ、取り込み（トリム）の流れ、タイプライター・拡大のアニメーションは実機で未確認。詳細は「編集画面の作り込み（Phase 4）」
-6. Phase 5 仕上げ: 設定画面（F6）、F5 の可否判断、バンドルとして公開するか決める
+6. Phase 5 仕上げ: 設定画面（F6）は撮影画面の歯車ボタンから開くダイアログとして実装し、実機で ON/OFF の反映を確認した。F5 は実装しない。バンドルは GitHub（`uta-a/cutlog`）で公開し、Morphe Manager から追加できるようにする。詳細は [DEVELOPMENT.md](DEVELOPMENT.md)
 
 未決事項:
 

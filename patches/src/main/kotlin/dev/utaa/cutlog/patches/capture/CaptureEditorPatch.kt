@@ -120,7 +120,7 @@ private val editorFontResourcePatch = resourcePatch {
 @Suppress("unused")
 val captureEditorPatch = bytecodePatch(
     name = "投稿前編集",
-    description = "撮影直後に編集画面を表示し、フィルターやテキストを焼き込んでから投稿できるようにします。",
+    description = "撮影直後に編集画面を表示し、フィルターやテキストを焼き込んでから投稿できるようにします。撮影画面に cutlog の設定ボタンを追加します。",
 ) {
     compatibleWith(Constants.SETLOG_COMPATIBILITY)
     dependsOn(media3ShaderResourcePatch, editorFontResourcePatch)
