@@ -4,6 +4,8 @@ cutlog は、setlog Android アプリ（`com.newchat.setlog`）向けの Morphe 
 
 cutlog は非公式のプロジェクトで、setlog の開発元および Morphe とは関係ありません。パッチを当てたアプリの利用は setlog の利用規約に反するおそれがあり、アカウントが停止される可能性もあります。自己責任で使ってください。
 
+[**➕ cutlog を Morphe に追加**](https://morphe.software/add-source?github=uta-a/cutlog)（Android 端末で開くと、Morphe Manager にパッチソースとして追加されます。詳しくは[導入](#導入)）
+
 ## できること
 
 - **投稿前に編集する**: 撮影のあとに編集画面を開き、トリム、フィルター、明るさなどの調整、効果（VHS・グリッチ・ぼかしなど）、フレーム、反転・ズーム、速度変更（0.5x〜2x）、逆再生、文字、スタンプ、文字やスタンプの動きを付けてから投稿できます。「そのまま投稿」も選べます。
