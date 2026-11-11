@@ -89,6 +89,14 @@ val relocateMedia3Rules = tasks.register("relocateMedia3Rules") {
 }
 
 android {
+    // setlog 1.3 の minSdkVersion。これより古い端末にはインストールされない。
+    defaultConfig {
+        minSdk = 32
+    }
+    lint {
+        // 付け替えた media3 の NotificationUtil を検出するが、cutlog は通知を出さない。
+        disable += "NotificationPermission"
+    }
     buildTypes {
         getByName("release") {
             proguardFile(media3Rules)
@@ -96,7 +104,8 @@ android {
     }
 }
 
-tasks.matching { it.name.startsWith("minifyRelease") }.configureEach {
+// R8 と lint のモデル生成が付け替えた keep 規則を読む。
+tasks.matching { it.name.startsWith("minifyRelease") || it.name.contains("Lint", ignoreCase = true) }.configureEach {
     dependsOn(relocateMedia3Rules)
 }
 
