@@ -1,6 +1,6 @@
 {
   "NOTE": "Do NOT manually edit this file. This file is automatically updated when semantic release (release.yml) runs. Manually editing this file can break your releases and break third party tools that use this file.",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "patches": [
     {
       "name": "MicroG-RE Google ログイン",
@@ -95,6 +95,7 @@
       "description": "撮影直後に編集画面を表示し、フィルターやテキストを焼き込んでから投稿できるようにします。撮影画面に cutlog の設定ボタンを追加します。",
       "default": true,
       "dependencies": [
+        "ResourcePatch",
         "ResourcePatch",
         "ResourcePatch"
       ],
