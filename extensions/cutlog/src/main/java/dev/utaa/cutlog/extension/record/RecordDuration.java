@@ -4,6 +4,7 @@ import android.content.Context;
 import android.view.View;
 import dev.utaa.cutlog.extension.editor.DurationButton;
 import dev.utaa.cutlog.extension.hook.CaptureInterceptor;
+import dev.utaa.cutlog.extension.pref.Feature;
 import dev.utaa.cutlog.extension.pref.Prefs;
 
 /**
@@ -52,10 +53,17 @@ public final class RecordDuration {
         return elapsed < recordingDurationMs + BUSY_MARGIN_MS;
     }
 
-    /** 選んでいる長さ（ミリ秒）。まだ Activity を見ていなければ公式の長さ。 */
+    /**
+     * 選んでいる長さ（ミリ秒）。まだ Activity を見ていない、このパッチが当たっていない、または設定で OFF なら
+     * 公式の長さ。
+     */
     public static long selectedMs() {
         Context context = CaptureInterceptor.appContextOrNull();
-        return context == null ? OFFICIAL_RECORD_MS : Prefs.recordSeconds(context) * 1000L;
+        if (context == null || !Feature.RECORD_DURATION.isAvailable()
+                || !Prefs.isEnabled(context, Feature.RECORD_DURATION)) {
+            return OFFICIAL_RECORD_MS;
+        }
+        return Prefs.recordSeconds(context) * 1000L;
     }
 
     /** 本体が録画設定の長さを読んだ直後に呼ばれる。 */
@@ -74,6 +82,7 @@ public final class RecordDuration {
 
     /** 撮影画面の View ができたときに呼ばれる。長さを選ぶボタンを足す。 */
     public static void onCameraViewCreated(View view) {
+        Feature.RECORD_DURATION.markAvailable();
         try {
             DurationButton.attach(view);
         } catch (RuntimeException e) {

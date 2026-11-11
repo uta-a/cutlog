@@ -8,6 +8,8 @@ import android.graphics.Paint;
 import android.graphics.Path;
 import android.graphics.RectF;
 import android.view.View;
+import dev.utaa.cutlog.extension.pref.Feature;
+import dev.utaa.cutlog.extension.pref.Prefs;
 
 /** 撮影画面のシャッターの右（フラッシュと左右対称の位置）に置く「ファイルから」ボタン。 */
 @SuppressLint("ViewConstructor")
@@ -31,7 +33,9 @@ public final class ImportButton extends View {
 
     /** 撮影画面の View にボタンを足す。シャッターが見つからなければ何もしない。 */
     public static void attach(View cameraRoot, Runnable onClick) {
-        CameraChrome.place(cameraRoot, new ImportButton(cameraRoot.getContext(), onClick), TAG, 1f);
+        Context context = cameraRoot.getContext();
+        CameraChrome.place(cameraRoot, new ImportButton(context, onClick), TAG, 1f,
+                () -> Prefs.isEnabled(context, Feature.IMPORT));
     }
 
     /** 写真ライブラリの形（角丸の枠に山と太陽）。フラッシュボタンと同じく白い線で描く。 */

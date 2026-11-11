@@ -13,6 +13,9 @@ import android.view.View;
 import android.widget.Toast;
 import dev.utaa.cutlog.extension.editor.EditorDialog;
 import dev.utaa.cutlog.extension.editor.ImportButton;
+import dev.utaa.cutlog.extension.editor.SettingsButton;
+import dev.utaa.cutlog.extension.pref.Feature;
+import dev.utaa.cutlog.extension.pref.Prefs;
 import java.io.File;
 import java.io.IOException;
 import java.lang.ref.WeakReference;
@@ -84,6 +87,10 @@ public final class CaptureInterceptor {
                 Log.w(TAG, "No activity for the editor; keeping the official flow.");
                 return false;
             }
+            if (!Prefs.isEnabled(activity, Feature.EDITOR)) {
+                Log.i(TAG, "Editor is turned off; keeping the official flow.");
+                return false;
+            }
             if (!"file".equals(capturedUri.getScheme()) || capturedUri.getPath() == null) {
                 Log.w(TAG, "Unsupported capture uri: " + capturedUri);
                 return false;
@@ -126,8 +133,19 @@ public final class CaptureInterceptor {
         }
     }
 
+    /** 撮影画面の View ができたときに呼ばれる。cutlog の設定を開く歯車ボタンを足す。 */
+    public static void onCameraSetup(View view) {
+        Feature.EDITOR.markAvailable();
+        try {
+            SettingsButton.attach(view);
+        } catch (RuntimeException e) {
+            Log.w(TAG, "Cannot add the settings button.", e);
+        }
+    }
+
     /** 撮影画面の View ができたときに呼ばれる。「ファイルから」ボタンを足す。 */
     public static void onCameraViewCreated(CaptureHost host, View view) {
+        Feature.IMPORT.markAvailable();
         try {
             ImportButton.attach(view, () -> startImport(host));
         } catch (RuntimeException e) {
@@ -138,6 +156,9 @@ public final class CaptureInterceptor {
     private static void startImport(CaptureHost host) {
         Activity activity = currentActivity.get();
         if (activity == null) {
+            return;
+        }
+        if (!Prefs.isEnabled(activity, Feature.IMPORT)) {
             return;
         }
         if (dev.utaa.cutlog.extension.record.RecordDuration.isRecording()) {

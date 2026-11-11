@@ -212,6 +212,12 @@ val captureEditorPatch = bytecodePatch(
             0,
             "invoke-static/range {p0 .. p0}, $INTERCEPTOR->onActivityResumed(Landroid/app/Activity;)V",
         )
+
+        // 撮影画面の View ができたら、cutlog の設定を開く歯車ボタンを足す（F6）。
+        cameraViewSetup(cameraType).method.addInstructions(
+            0,
+            "invoke-static/range {p1 .. p1}, $INTERCEPTOR->onCameraSetup(Landroid/view/View;)V",
+        )
     }
 }
 
@@ -231,6 +237,17 @@ internal fun app.morphe.patcher.patch.BytecodePatchContext.captureTargets(): Cap
     )
     return CaptureTargets(resultClass, deliverResult)
 }
+
+/** 撮影画面の onViewCreated から呼ばれる UI の組み立て（`SetlogCameraFragment#setupUi`）。 */
+internal fun app.morphe.patcher.patch.BytecodePatchContext.cameraViewSetup(cameraType: String): SingleMatch = singleMatch(
+    "camera view setup",
+    Fingerprint(
+        returnType = "V",
+        parameters = listOf("Landroid/view/View;", "Landroid/os/Bundle;"),
+        filters = listOf(app.morphe.patcher.string("SetlogCameraFragment#setupUi")),
+        custom = { _, classDef -> classDef.type == cameraType },
+    ),
+)
 
 internal class SingleMatch(val method: MutableMethod, val classDef: MutableClass, val definingClass: String, val name: String)
 

@@ -8,6 +8,7 @@ import android.util.TypedValue;
 import android.view.Gravity;
 import android.view.View;
 import android.widget.TextView;
+import dev.utaa.cutlog.extension.pref.Feature;
 import dev.utaa.cutlog.extension.pref.Prefs;
 
 /**
@@ -31,7 +32,9 @@ public final class DurationButton extends TextView {
     }
 
     public static void attach(View cameraRoot) {
-        CameraChrome.place(cameraRoot, new DurationButton(cameraRoot.getContext()), TAG, -2f);
+        Context context = cameraRoot.getContext();
+        CameraChrome.place(cameraRoot, new DurationButton(context), TAG, -2f,
+                () -> Prefs.isEnabled(context, Feature.RECORD_DURATION));
     }
 
     private void next() {

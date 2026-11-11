@@ -9,6 +9,7 @@ public final class Prefs {
     private static final String FILE = "cutlog";
     private static final String LAST_FILTER = "last_filter";
     private static final String RECORD_SECONDS = "record_seconds";
+    private static final String FEATURE_PREFIX = "feature_";
 
     /** 撮影する長さの選択肢（秒）。先頭は公式と同じ長さ。 */
     public static final int[] RECORD_SECONDS_CHOICES = {2, 3, 5, 10, 15};
@@ -40,6 +41,15 @@ public final class Prefs {
 
     public static void setRecordSeconds(Context context, int seconds) {
         prefs(context).edit().putInt(RECORD_SECONDS, seconds).apply();
+    }
+
+    /** 機能の ON/OFF。初期値はすべて ON（パッチを当てた時点で使うつもりの機能のため）。 */
+    public static boolean isEnabled(Context context, Feature feature) {
+        return prefs(context).getBoolean(FEATURE_PREFIX + feature.key, true);
+    }
+
+    public static void setEnabled(Context context, Feature feature, boolean enabled) {
+        prefs(context).edit().putBoolean(FEATURE_PREFIX + feature.key, enabled).apply();
     }
 
     private static SharedPreferences prefs(Context context) {
