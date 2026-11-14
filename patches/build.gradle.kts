@@ -31,7 +31,8 @@ tasks {
     register<JavaExec>("generatePatchesList") {
         description = "Build patch bundle metadata"
 
-        dependsOn(build)
+        // Morphe Manager (Android) 向けに classes.dex を .mpp へ同梱する。
+        dependsOn(build, "buildAndroid")
 
         classpath = sourceSets["main"].runtimeClasspath + patchListGeneratorClasspath
         mainClass.set("util.PatchListGeneratorKt")

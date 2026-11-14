@@ -4,7 +4,7 @@
 
 ## 開発の流れ
 
-Phase 0 の静的調査は完了。Phase 1 のローカルインストール元チェックと録画完了時の動画差し替え PoC は実装済み。差し替えた動画を dev グループへ投稿し、別端末で再生できることはユーザー確認済みで、Phase 1 は Go。途中のロック問題は受信側の鍵再生成で解消した。Phase 2 の投稿前編集（F1〜F3）と Phase 3 のファイルから投稿（F4）は実装済みで、実機で編集・書き出し・本体の送信先画面への受け渡しまで確認した。編集済み動画と取り込み動画を dev グループへ投稿し、別端末で再生できることも確認した。Phase 4 の編集画面の作り込み（ツールバーとタイムライン、文字・スタンプ・効果・フレーム・反転・ズーム・速度・逆再生）は実装済みで、速さを変えて長さの変わった動画も投稿・別端末での再生を確認した。Phase 5 で設定画面（F6）を足し、F5（過去の時間帯に投稿）は実装しないことに決めた。バンドルは GitHub（`uta-a/cutlog`）で v0.1.0 として公開した。
+Phase 0 の静的調査は完了。Phase 1 のローカルインストール元チェックと録画完了時の動画差し替え PoC は実装済み。差し替えた動画を dev グループへ投稿し、別端末で再生できることはユーザー確認済みで、Phase 1 は Go。途中のロック問題は受信側の鍵再生成で解消した。Phase 2 の投稿前編集（F1〜F3）と Phase 3 のファイルから投稿（F4）は実装済みで、実機で編集・書き出し・本体の送信先画面への受け渡しまで確認した。編集済み動画と取り込み動画を dev グループへ投稿し、別端末での再生も確認した。Phase 4 の編集画面の作り込み（ツールバーとタイムライン、文字・スタンプ・効果・フレーム・反転・ズーム・速度・逆再生）は実装済みで、速さを変えて長さの変わった動画も投稿・別端末での再生を確認した。Phase 5 で設定画面（F6）を足し、F5（過去の時間帯に投稿）は実装しないことに決めた。バンドルは GitHub（`uta-a/cutlog`）で v0.1.0 として公開した。
 
 ## ドキュメント
 
@@ -56,7 +56,6 @@ java -jar <morphe-desktop-all.jar> patch \
 - 既存のログイン状態や暗号鍵は消去しない。本体のキャンセル・タイムアウト・エラー処理も残す
 
 検証用 APK: `scratch/setlog-microg.apk`。編集・取り込み・撮影秒数の既存パッチも含む。バンドルのビルド、元 APKM への全 5 パッチの適用、署名検証、実行時の Google 要求限定・署名検証失敗時の元経路維持・service の分離を確認した。
-
 Android 16 の XIG07 にインストールして起動を確認した。さらに、インストール済み APK の実クラスを Android 上で読み込み、MicroG-RE 7.3.0 の署名、Google option の認識、provider factory の選択、nonce 対応 controller の選択、connection config の MicroG package、他 service の元 package 維持、元証明書 metadata を検証した。このスモークは token を要求せず、ログイン状態・保存データ・暗号鍵を変更しない。端末はログイン済みで編集中だったため、Google アカウントでのログインやり直しと backend の応答までは確認していない。
 
 ## 投稿前編集のパッチ
@@ -159,7 +158,7 @@ adb shell rm /sdcard/Android/data/com.newchat.setlog/files/cutlog/replacement.mp
 
 ## リリース
 
-`gradle.properties` の `version`、`patches-bundle.json`（説明・`download_url`・`version`）、`./gradlew :patches:generatePatchesList` で作り直した `patches-list.json` を 1 コミット（`chore: リリース vX.Y.Z`）で更新する。`patches-list.json` は手で編集しない。GitHub のリリース `vX.Y.Z` に `patches/build/libs/patches-X.Y.Z.mpp` を添付する。Morphe Manager は `patches-bundle.json` を見て新しいリリースを見つける。
+`gradle.properties` の `version`、`patches-bundle.json`（説明・`download_url`・`version`）、`./gradlew :patches:generatePatchesList`（内部で `:patches:buildAndroid` も実行し `classes.dex` を同梱する）で作り直した `patches-list.json` を 1 コミット（`chore: リリース vX.Y.Z`）で更新する。`patches-list.json` は手で編集しない。GitHub のリリース `vX.Y.Z` に `patches/build/libs/patches-X.Y.Z.mpp` を添付する。Morphe Manager（Android）で読み込むには `classes.dex` が必要なため、`:patches:build` 単体ではなく `:patches:buildAndroid` を経た `.mpp` を添付する。Morphe Manager は `patches-bundle.json` を見て新しいリリースを見つける。
 
 ## 注意
 

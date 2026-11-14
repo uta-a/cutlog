@@ -86,10 +86,10 @@ Google でログインする場合は、[MicroG-RE の公式リリース](https:
 ビルドには Morphe の GitHub Packages の認証（環境変数 `GITHUB_ACTOR` / `GITHUB_TOKEN`）と JDK 17 以上が必要です。
 
 ```sh
-./gradlew build
+./gradlew :patches:build :patches:buildAndroid
 ```
 
-`patches/build/libs/patches-<version>.mpp` ができます。パッチの仕組みと検証の記録は [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md)、設計は [docs/DESIGN.md](docs/DESIGN.md) にあります。
+`patches/build/libs/patches-<version>.mpp` ができます（Morphe Manager 向けに `classes.dex` を同梱するには `:patches:buildAndroid` が必要です。`./gradlew build` のみでは Morphe Desktop 向けの `.class` のみが出力されます）。パッチの仕組みと検証の記録は [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md)、設計は [docs/DESIGN.md](docs/DESIGN.md) にあります。
 
 ## ライセンス
 
