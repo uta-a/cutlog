@@ -159,7 +159,14 @@ adb shell rm /sdcard/Android/data/com.newchat.setlog/files/cutlog/replacement.mp
 
 ## リリース
 
-`gradle.properties` の `version`、`patches-bundle.json`（説明・`download_url`・`version`）、`./gradlew :patches:generatePatchesList`（内部で `:patches:buildAndroid` も実行し `classes.dex` を同梱する）で作り直した `patches-list.json` を 1 コミット（`chore: リリース vX.Y.Z`）で更新する。`patches-list.json` は手で編集しない。GitHub のリリース `vX.Y.Z` に `patches/build/libs/patches-X.Y.Z.mpp` を添付する。Morphe Manager（Android）で読み込むには `classes.dex` が必要なため、`:patches:build` 単体ではなく `:patches:buildAndroid` を経た `.mpp` を添付する。Morphe Manager は `patches-bundle.json` を見て新しいリリースを見つける。
+`gradle.properties` の `version`、`patches-bundle.json`（説明・`download_url`・`version`）、`./gradlew :patches:generatePatchesList` で作り直した `patches-list.json` を 1 コミット（`chore: リリース vX.Y.Z`）で更新する。`patches-list.json` は手で編集しない。GitHub のリリース `vX.Y.Z` に `patches/build/libs/patches-X.Y.Z.mpp` を添付する。Morphe Manager（Android）は `.mpp` の中の `classes.dex` を読む。`buildAndroid` は `jar` の出力に dex を後から書き足すタスクで、`jar` のあとに必ず実行するよう `patches/build.gradle.kts` で `finalizedBy` を付けている。添付する前に次を確かめる。
+
+```sh
+unzip -l patches/build/libs/patches-X.Y.Z.mpp | grep classes.dex   # 1 行出ること
+grep -h '^  "version"\|download_url' patches-bundle.json patches-list.json; grep '^version=' gradle.properties   # X.Y.Z で揃っていること
+```
+
+Morphe Manager は `patches-bundle.json` を見て新しいリリースを見つける。
 
 ## 注意
 
