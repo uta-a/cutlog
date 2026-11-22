@@ -35,7 +35,7 @@ private const val LENS_FACING_BACK = 1
 @Suppress("unused")
 val importVideoPatch = bytecodePatch(
     name = "ファイルから投稿",
-    description = "撮影画面に「ファイルから」ボタンを追加し、端末内の動画を今のログとして投稿できるようにします。",
+    description = "撮影画面の歯車ボタンの設定画面に「ファイルから選ぶ」を追加し、端末内の動画を今のログとして投稿できるようにします。",
 ) {
     compatibleWith(Constants.SETLOG_COMPATIBILITY)
     dependsOn(captureEditorPatch)
@@ -130,7 +130,7 @@ val importVideoPatch = bytecodePatch(
             ),
         )
 
-        // 撮影画面の View ができたら「ファイルから」ボタンを足す。
+        // 撮影画面の View ができたら、設定画面の「ファイルから選ぶ」が取り込んだ動画を返す先として覚えさせる。
         singleMatch(
             "camera view setup",
             Fingerprint(
